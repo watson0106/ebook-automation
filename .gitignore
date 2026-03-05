@@ -1,0 +1,30 @@
+# 環境変数（APIキー・パスワードを含む）
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# 出力ファイル（生成物）
+output/
+data/books/*.md
+
+# Playwright
+playwright/.local-browsers/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

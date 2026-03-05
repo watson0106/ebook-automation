@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Claude model
     claude_model: str = "claude-opus-4-6"
 
+    # Gemini model
+    gemini_model: str = "gemini-2.0-flash"
+
     # Imagen model
     imagen_model: str = "imagen-3.0-generate-002"
 

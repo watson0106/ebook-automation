@@ -1,11 +1,10 @@
-"""Claude APIを使って賢者とユイの対話形式で本を執筆するモジュール"""
+"""Gemini APIを使って賢者とユイの対話形式で本を執筆するモジュール"""
 import json
 import re
+import requests
 from pathlib import Path
 
-import anthropic
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from config.settings import settings
 from src.research import BookInfo
@@ -21,29 +20,44 @@ from src.content.prompts import (
 
 console = Console()
 
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
 
 class BookWriter:
     def __init__(self):
-        self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        self.model = settings.claude_model
+        self.api_key = settings.google_api_key
+        self.model = settings.gemini_model
 
-    def _call_claude(self, prompt: str, system: str = SYSTEM_PROMPT, max_tokens: int = 4096) -> str:
-        """Claude APIを呼び出してテキストを生成"""
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
+    def _call_gemini(self, prompt: str, system: str = SYSTEM_PROMPT, max_tokens: int = 4096) -> str:
+        """Gemini REST APIを呼び出してテキストを生成"""
+        url = GEMINI_API_URL.format(model=self.model)
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": system}]
+            },
+            "contents": [
+                {"role": "user", "parts": [{"text": prompt}]}
+            ],
+            "generationConfig": {
+                "maxOutputTokens": max_tokens,
+                "temperature": 0.9,
+            },
+        }
+        response = requests.post(
+            url,
+            params={"key": self.api_key},
+            json=payload,
+            timeout=120,
         )
-        return response.content[0].text
+        response.raise_for_status()
+        data = response.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"]
 
     def _extract_json(self, text: str) -> dict:
         """テキストからJSONを抽出"""
-        # コードブロック内のJSONを探す
         match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
         if match:
             return json.loads(match.group(1))
-        # コードブロックなしでJSONを探す
         match = re.search(r"\{[\s\S]+\}", text)
         if match:
             return json.loads(match.group(0))
@@ -58,7 +72,7 @@ class BookWriter:
             category=book_info.category,
             description=book_info.description or "（説明なし）",
         )
-        response = self._call_claude(prompt, max_tokens=2048)
+        response = self._call_gemini(prompt, max_tokens=2048)
         plan = self._extract_json(response)
         console.print(f"  タイトル: [bold]{plan['book_title']}[/bold]")
         console.print(f"  章数: {len(plan['chapter_titles'])} 章")
@@ -71,7 +85,7 @@ class BookWriter:
             title=book_info.title,
             author=book_info.author,
         )
-        return self._call_claude(prompt)
+        return self._call_gemini(prompt)
 
     def write_chapter(
         self,
@@ -89,7 +103,7 @@ class BookWriter:
             chapter_title=chapter_title,
             all_chapters="\n".join(f"{i+1}. {t}" for i, t in enumerate(all_chapters)),
         )
-        return self._call_claude(prompt, max_tokens=4096)
+        return self._call_gemini(prompt, max_tokens=4096)
 
     def write_afterword(self, book_info: BookInfo, chapter_titles: list[str]) -> str:
         """あとがきを執筆"""
@@ -99,7 +113,7 @@ class BookWriter:
             author=book_info.author,
             chapters="\n".join(f"{i+1}. {t}" for i, t in enumerate(chapter_titles)),
         )
-        return self._call_claude(prompt)
+        return self._call_gemini(prompt)
 
     def generate_thumbnail_prompt(self, plan: dict, book_info: BookInfo) -> dict:
         """サムネイル用のImagen 3プロンプトを生成"""
@@ -109,19 +123,14 @@ class BookWriter:
             keywords=", ".join(plan.get("keywords", [])),
             category=book_info.category,
         )
-        response = self._call_claude(prompt, max_tokens=1024)
+        response = self._call_gemini(prompt, max_tokens=1024)
         try:
             return self._extract_json(response)
         except Exception:
             return {"prompt": response, "negative_prompt": "blurry, low quality, text errors"}
 
     def write_book(self, book_info: BookInfo) -> GeneratedBook:
-        """
-        本全体を執筆して GeneratedBook オブジェクトを返す
-
-        Args:
-            book_info: リサーチで見つかった本の情報
-        """
+        """本全体を執筆して GeneratedBook オブジェクトを返す"""
         console.print(f"\n[bold green]✍️  執筆開始: {book_info.title}[/bold green]")
 
         # 1. 構成計画
@@ -161,7 +170,6 @@ class BookWriter:
         save_dir = output_dir or settings.data_dir
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        # ファイル名用に安全な文字列に変換
         safe_title = re.sub(r'[\\/*?:"<>|【】]', "", book.book_title)[:50]
         filepath = save_dir / f"{safe_title}.md"
 

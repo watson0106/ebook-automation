@@ -82,6 +82,59 @@ def load_report(report_path: Path) -> list[BookInfo]:
     return [BookInfo(**item) for item in data["books"]]
 
 
+def _research_with_claude(top_n: int) -> list[BookInfo]:
+    """スクレイプ失敗時のフォールバック：Claude APIで人気本リストを生成"""
+    import re
+    import anthropic
+    console.print("[yellow]⚠️  Webスクレイプ不可のため、Claude APIで人気書籍をリサーチします...[/yellow]")
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    prompt = f"""日本のAmazonや楽天ブックスのビジネス書・自己啓発書ベストセラーランキングを参考に、
+現在（2024〜2025年）最も読まれている・売れている日本語書籍を{top_n}冊リストアップしてください。
+
+以下のJSON配列形式で出力してください（コードブロックで囲んでください）：
+```json
+[
+  {{
+    "title": "書籍タイトル",
+    "author": "著者名",
+    "category": "ビジネス",
+    "description": "本の内容を2〜3文で説明"
+  }}
+]
+```
+
+選定基準：
+- ビジネス・自己啓発・投資・マインドセット・生産性などのカテゴリ
+- 多くの読者に支持されている定番書＋話題の新刊をバランスよく
+- 日本語版が存在する翻訳書も含めてよい"""
+
+    response = client.messages.create(
+        model=settings.claude_model,
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = response.content[0].text
+    m = re.search(r"```(?:json)?\s*(\[[\s\S]+?\])\s*```", text)
+    if not m:
+        m = re.search(r"(\[[\s\S]+\])", text)
+    if not m:
+        raise ValueError("Claude からのレスポンスでJSONが見つかりませんでした")
+
+    items = json.loads(m.group(1))
+    books = []
+    for i, item in enumerate(items[:top_n], start=1):
+        books.append(BookInfo(
+            title=item.get("title", ""),
+            author=item.get("author", "不明"),
+            source="claude",
+            rank=i,
+            category=item.get("category", "ビジネス"),
+            description=item.get("description", ""),
+        ))
+    return books
+
+
 async def research_popular_books(
     sources: list[str] | None = None,
     top_n: int = 10,
@@ -107,9 +160,16 @@ async def research_popular_books(
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for result in results:
         if isinstance(result, Exception):
-            console.print(f"[red]スクレイプエラー: {result}[/red]")
+            console.print(f"[yellow]スクレイプ失敗: {result}[/yellow]")
         else:
             all_books.extend(result)
+
+    # スクレイプが全滅した場合はClaude APIでフォールバック
+    if not all_books:
+        try:
+            all_books = _research_with_claude(top_n)
+        except Exception as e:
+            console.print(f"[red]Claude APIフォールバックも失敗: {e}[/red]")
 
     console.print(f"\n総取得件数: {len(all_books)} 件")
 

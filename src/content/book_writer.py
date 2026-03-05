@@ -1,6 +1,7 @@
 """Gemini APIを使って賢者とユイの対話形式で本を執筆するモジュール"""
 import json
 import re
+import time
 import requests
 from pathlib import Path
 
@@ -22,14 +23,27 @@ console = Console()
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+# 無料枠レート制限: gemini-2.0-flash = 15回/分 → 4秒間隔
+CALL_INTERVAL_SEC = 5
+# 429エラー時の待機秒数（指数バックオフ）
+RETRY_WAIT_SECS = [30, 60, 120]
+
 
 class BookWriter:
     def __init__(self):
         self.api_key = settings.google_api_key
         self.model = settings.gemini_model
+        self._last_call_time: float = 0.0
 
     def _call_gemini(self, prompt: str, system: str = SYSTEM_PROMPT, max_tokens: int = 4096) -> str:
-        """Gemini REST APIを呼び出してテキストを生成"""
+        """Gemini REST APIを呼び出してテキストを生成（レート制限対応）"""
+        # 前回呼び出しからの最小間隔を確保
+        elapsed = time.time() - self._last_call_time
+        if elapsed < CALL_INTERVAL_SEC:
+            wait = CALL_INTERVAL_SEC - elapsed
+            console.print(f"  [dim]⏳ レート制限対策: {wait:.1f}秒待機...[/dim]")
+            time.sleep(wait)
+
         url = GEMINI_API_URL.format(model=self.model)
         payload = {
             "system_instruction": {
@@ -43,15 +57,28 @@ class BookWriter:
                 "temperature": 0.9,
             },
         }
-        response = requests.post(
-            url,
-            params={"key": self.api_key},
-            json=payload,
-            timeout=120,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+
+        for attempt, retry_wait in enumerate([0] + RETRY_WAIT_SECS):
+            if retry_wait > 0:
+                console.print(f"  [yellow]⏳ 429エラー: {retry_wait}秒後にリトライ ({attempt}/{len(RETRY_WAIT_SECS)})...[/yellow]")
+                time.sleep(retry_wait)
+
+            self._last_call_time = time.time()
+            response = requests.post(
+                url,
+                params={"key": self.api_key},
+                json=payload,
+                timeout=120,
+            )
+
+            if response.status_code == 429:
+                if attempt < len(RETRY_WAIT_SECS):
+                    continue
+                response.raise_for_status()
+
+            response.raise_for_status()
+            data = response.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
 
     def _extract_json(self, text: str) -> dict:
         """テキストからJSONを抽出"""

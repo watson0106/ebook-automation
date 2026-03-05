@@ -206,6 +206,11 @@ def run(title, author, category, description):
     console.print("\n[bold]--- STEP 3: EPUB生成 ---[/bold]")
     epub_path = build_epub(book, cover_path)
 
+    # ④ Word (.docx) 生成
+    console.print("\n[bold]--- STEP 4: Word(.docx)生成 ---[/bold]")
+    from src.publishing.docx_writer import build_docx
+    docx_path = build_docx(book)
+
     # 成果物レポート
     console.print("\n" + "=" * 50)
     console.print("[bold green]✅ 成果物が完成しました[/bold green]")
@@ -217,9 +222,42 @@ def run(title, author, category, description):
     console.print(f"[bold]📚 章数:[/bold] {len(book.chapters)} 章")
     console.print(f"\n[bold]--- 成果物ファイル ---[/bold]")
     console.print(f"  EPUB  : [cyan]{epub_path.resolve()}[/cyan]  ({epub_path.stat().st_size / 1024:.1f} KB)")
+    console.print(f"  Word  : [cyan]{docx_path.resolve()}[/cyan]  ({docx_path.stat().st_size / 1024:.1f} KB)")
     if cover_path and cover_path.exists():
         console.print(f"  カバー: [cyan]{cover_path.resolve()}[/cyan]  ({cover_path.stat().st_size / 1024:.1f} KB)")
-    console.print(f"\n[dim]D2D投稿は 'python main.py publish' コマンドで別途実行できます。[/dim]")
+    console.print(f"\n[dim]💡 .docx はGoogleドライブにアップロードするとGoogleドキュメントとして編集できます。[/dim]")
+    console.print(f"[dim]D2D投稿は 'python main.py publish' コマンドで別途実行できます。[/dim]")
+
+
+@cli.command()
+@click.option("--title", "-t", required=True, help="対象書籍のタイトル")
+@click.option("--author", "-a", default="不明", help="著者名")
+@click.option("--category", "-c", default="ビジネス", help="カテゴリ")
+@click.option("--description", "-d", default="", help="本の説明")
+@click.option("--output-dir", type=click.Path(), default=None, help="出力ディレクトリ")
+def docx(title, author, category, description, output_dir):
+    """⑤ 執筆して Word(.docx) ファイルを生成する（Googleドキュメントに変換可能）"""
+    print_banner()
+    console.print(f"\n[bold]執筆 & .docx 生成: {title}[/bold]\n")
+
+    from src.research import BookInfo
+    from src.content.book_writer import BookWriter
+    from src.publishing.docx_writer import build_docx
+
+    book_info = BookInfo(
+        title=title, author=author, source="manual",
+        rank=0, category=category, description=description,
+    )
+    writer = BookWriter()
+    book = writer.write_book(book_info)
+
+    out_dir = Path(output_dir) if output_dir else None
+    docx_path = build_docx(book, out_dir)
+
+    console.print(f"\n[bold green]✅ 完了！[/bold green]")
+    console.print(f"   ファイル: [cyan]{docx_path.resolve()}[/cyan]")
+    console.print(f"   文字数  : {book.total_chars:,} 文字")
+    console.print(f"\n[dim]💡 このファイルをGoogleドライブにアップロードすると、Googleドキュメントとして編集できます。[/dim]")
 
 
 @cli.command()

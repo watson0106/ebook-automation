@@ -19,5 +19,10 @@ python-dotenv>=1.0.0
 pydantic>=2.5.0
 pydantic-settings>=2.0.0
 
+# Google Docs API
+google-api-python-client>=2.100.0
+google-auth>=2.23.0
+google-auth-httplib2>=0.1.0
+
 # Async support
 asyncio-throttle>=1.0.0

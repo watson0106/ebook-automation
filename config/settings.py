@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     google_api_key: str = ""
 
+    # Google Docs
+    google_service_account_json: str = ""  # サービスアカウントJSONファイルのパス
+    gdoc_document_id: str = "146cyr_6rRT2YJ0MgOOYtE3Mk-2Y9JeMWgI0UWEHfGz4"  # 出力先ドキュメントID
+
     # D2D Account
     d2d_email: str = ""
     d2d_password: str = ""

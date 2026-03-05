@@ -52,9 +52,9 @@ def research(sources, top, output):
 
 @cli.command()
 @click.option("--title", "-t", required=True, help="対象書籍のタイトル")
-@click.option("--author", "-a", default="不明", help="著者名")
-@click.option("--category", "-c", default="ビジネス", help="カテゴリ")
-@click.option("--description", "-d", default="", help="本の説明")
+@click.option("--author", "-a", default=None, help="著者名（省略時は自動検索）")
+@click.option("--category", "-c", default=None, help="カテゴリ（省略時は自動検索）")
+@click.option("--description", "-d", default=None, help="本の説明（省略時は自動検索）")
 @click.option("--output-dir", type=click.Path(), default=None, help="出力ディレクトリ")
 def write(title, author, category, description, output_dir):
     """② 賢者とユイの対話形式で要約本を執筆する"""
@@ -63,6 +63,13 @@ def write(title, author, category, description, output_dir):
 
     from src.research import BookInfo
     from src.content.book_writer import BookWriter
+
+    writer = BookWriter()
+    if author is None or category is None or description is None:
+        info = writer.lookup_book_info(title)
+        author = author or info.get("author", "不明")
+        category = category or info.get("category", "ビジネス")
+        description = description or info.get("description", "")
 
     book_info = BookInfo(
         title=title,
@@ -73,7 +80,6 @@ def write(title, author, category, description, output_dir):
         description=description,
     )
 
-    writer = BookWriter()
     book = writer.write_book(book_info)
     out_dir = Path(output_dir) if output_dir else None
     filepath = writer.save_book(book, out_dir)
@@ -155,9 +161,9 @@ def publish(epub, cover, title, subtitle, description, price):
 
 @cli.command()
 @click.option("--title", "-t", required=True, help="対象書籍のタイトル")
-@click.option("--author", "-a", default="不明", help="著者名")
-@click.option("--category", "-c", default="ビジネス", help="カテゴリ")
-@click.option("--description", "-d", default="", help="本の説明")
+@click.option("--author", "-a", default=None, help="著者名（省略時は自動検索）")
+@click.option("--category", "-c", default=None, help="カテゴリ（省略時は自動検索）")
+@click.option("--description", "-d", default=None, help="本の説明（省略時は自動検索）")
 def run(title, author, category, description):
     """
     全工程を一括実行する
@@ -165,12 +171,21 @@ def run(title, author, category, description):
     """
     print_banner()
     console.print(f"\n[bold cyan]🚀 全工程パイプライン開始[/bold cyan]")
-    console.print(f"   対象: {title} / {author}\n")
 
     from src.research import BookInfo
     from src.content.book_writer import BookWriter
     from src.thumbnail.imagen_generator import ThumbnailGenerator
     from src.epub.epub_builder import build_epub
+
+    # ① 書籍情報の自動検索
+    writer = BookWriter()
+    if author is None or category is None or description is None:
+        info = writer.lookup_book_info(title)
+        author = author or info.get("author", "不明")
+        category = category or info.get("category", "ビジネス")
+        description = description or info.get("description", "")
+
+    console.print(f"   対象: {title} / {author}\n")
 
     book_info = BookInfo(
         title=title,
@@ -181,9 +196,8 @@ def run(title, author, category, description):
         description=description,
     )
 
-    # ① 執筆
+    # ② 執筆
     console.print("[bold]--- STEP 1: 執筆 ---[/bold]")
-    writer = BookWriter()
     book = writer.write_book(book_info)
     writer.save_book(book)
 
@@ -231,9 +245,9 @@ def run(title, author, category, description):
 
 @cli.command()
 @click.option("--title", "-t", required=True, help="対象書籍のタイトル")
-@click.option("--author", "-a", default="不明", help="著者名")
-@click.option("--category", "-c", default="ビジネス", help="カテゴリ")
-@click.option("--description", "-d", default="", help="本の説明")
+@click.option("--author", "-a", default=None, help="著者名（省略時は自動検索）")
+@click.option("--category", "-c", default=None, help="カテゴリ（省略時は自動検索）")
+@click.option("--description", "-d", default=None, help="本の説明（省略時は自動検索）")
 @click.option("--output-dir", type=click.Path(), default=None, help="出力ディレクトリ")
 def docx(title, author, category, description, output_dir):
     """⑤ 執筆して Word(.docx) ファイルを生成する（Googleドキュメントに変換可能）"""
@@ -244,11 +258,17 @@ def docx(title, author, category, description, output_dir):
     from src.content.book_writer import BookWriter
     from src.publishing.docx_writer import build_docx
 
+    writer = BookWriter()
+    if author is None or category is None or description is None:
+        info = writer.lookup_book_info(title)
+        author = author or info.get("author", "不明")
+        category = category or info.get("category", "ビジネス")
+        description = description or info.get("description", "")
+
     book_info = BookInfo(
         title=title, author=author, source="manual",
         rank=0, category=category, description=description,
     )
-    writer = BookWriter()
     book = writer.write_book(book_info)
 
     out_dir = Path(output_dir) if output_dir else None

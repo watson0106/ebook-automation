@@ -90,6 +90,30 @@ class BookWriter:
             return json.loads(match.group(0))
         raise ValueError(f"JSON not found in response: {text[:200]}")
 
+    def lookup_book_info(self, title: str) -> dict:
+        """タイトルだけから著者・カテゴリ・説明をGeminiで調べる"""
+        console.print(f"[cyan]🔍 書籍情報を検索中: {title}[/cyan]")
+        prompt = f"""以下の書籍タイトルについて、実際の書籍情報を調べてJSON形式で回答してください。
+
+タイトル: {title}
+
+```json
+{{
+  "author": "著者名（不明な場合は「不明」）",
+  "category": "カテゴリ（ビジネス/自己啓発/投資/心理学/小説/歴史/科学 など）",
+  "description": "この本の内容を3〜5文で説明"
+}}
+```
+
+実在する書籍であれば正確な情報を、不明な場合は推測で構いません。"""
+        response = self._call_gemini(prompt, max_tokens=512)
+        try:
+            info = self._extract_json(response)
+            console.print(f"  著者: [bold]{info.get('author', '不明')}[/bold]  カテゴリ: {info.get('category', 'ビジネス')}")
+            return info
+        except Exception:
+            return {"author": "不明", "category": "ビジネス", "description": ""}
+
     def plan_book(self, book_info: BookInfo) -> dict:
         """本の構成を計画する"""
         console.print(f"[cyan]📚 本の構成を計画中: {book_info.title}[/cyan]")

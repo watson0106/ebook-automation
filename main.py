@@ -158,12 +158,10 @@ def publish(epub, cover, title, subtitle, description, price):
 @click.option("--author", "-a", default="不明", help="著者名")
 @click.option("--category", "-c", default="ビジネス", help="カテゴリ")
 @click.option("--description", "-d", default="", help="本の説明")
-@click.option("--price", "-p", default=4.99, type=float, help="価格（USD）")
-@click.option("--skip-publish", is_flag=True, help="D2D投稿をスキップ（テスト用）")
-def run(title, author, category, description, price, skip_publish):
+def run(title, author, category, description):
     """
     全工程を一括実行する
-    執筆 → カバー生成 → EPUB作成 → D2D投稿
+    執筆 → カバー生成 → EPUB作成 → 成果物レポート出力
     """
     print_banner()
     console.print(f"\n[bold cyan]🚀 全工程パイプライン開始[/bold cyan]")
@@ -173,8 +171,6 @@ def run(title, author, category, description, price, skip_publish):
     from src.content.book_writer import BookWriter
     from src.thumbnail.imagen_generator import ThumbnailGenerator
     from src.epub.epub_builder import build_epub
-    from src.publishing.d2d_publisher import D2DPublisher, BookMetadata
-    from config.settings import settings
 
     book_info = BookInfo(
         title=title,
@@ -185,13 +181,13 @@ def run(title, author, category, description, price, skip_publish):
         description=description,
     )
 
-    # ② 執筆
+    # ① 執筆
     console.print("[bold]--- STEP 1: 執筆 ---[/bold]")
     writer = BookWriter()
     book = writer.write_book(book_info)
     writer.save_book(book)
 
-    # ③ サムネイル生成
+    # ② サムネイル生成
     console.print("\n[bold]--- STEP 2: カバー生成 ---[/bold]")
     thumbnail_prompt = writer.generate_thumbnail_prompt(
         {"book_title": book.book_title, "subtitle": book.subtitle,
@@ -206,36 +202,24 @@ def run(title, author, category, description, price, skip_publish):
         thumbnail_prompt.get("negative_prompt", ""),
     )
 
-    # EPUB生成
+    # ③ EPUB生成
     console.print("\n[bold]--- STEP 3: EPUB生成 ---[/bold]")
     epub_path = build_epub(book, cover_path)
 
-    # ④ D2D投稿
-    if not skip_publish:
-        console.print("\n[bold]--- STEP 4: D2D投稿 ---[/bold]")
-        meta = BookMetadata(
-            title=book.book_title,
-            subtitle=book.subtitle,
-            description=book.description,
-            author_name=settings.author_name,
-            keywords=book.keywords,
-            epub_path=epub_path,
-            cover_path=cover_path,
-            price_usd=price,
-        )
-        publisher = D2DPublisher()
-        result = asyncio.run(publisher.publish_book(meta))
-
-        if result.success:
-            console.print(f"\n[bold green]🎉 全工程完了！D2D URL: {result.d2d_book_url}[/bold green]")
-        else:
-            console.print(f"\n[yellow]⚠️ D2D投稿に失敗しましたが、ファイルは生成されました[/yellow]")
-            console.print(f"   EPUB: {epub_path}")
-            console.print(f"   カバー: {cover_path}")
-    else:
-        console.print(f"\n[bold green]✅ ファイル生成完了（D2D投稿はスキップ）[/bold green]")
-        console.print(f"   EPUB: {epub_path}")
-        console.print(f"   カバー: {cover_path}")
+    # 成果物レポート
+    console.print("\n" + "=" * 50)
+    console.print("[bold green]✅ 成果物が完成しました[/bold green]")
+    console.print("=" * 50)
+    console.print(f"\n[bold]📖 タイトル:[/bold] {book.book_title}")
+    if book.subtitle:
+        console.print(f"[bold]   サブタイトル:[/bold] {book.subtitle}")
+    console.print(f"[bold]📝 文字数:[/bold] {book.total_chars:,} 文字")
+    console.print(f"[bold]📚 章数:[/bold] {len(book.chapters)} 章")
+    console.print(f"\n[bold]--- 成果物ファイル ---[/bold]")
+    console.print(f"  EPUB  : [cyan]{epub_path.resolve()}[/cyan]  ({epub_path.stat().st_size / 1024:.1f} KB)")
+    if cover_path and cover_path.exists():
+        console.print(f"  カバー: [cyan]{cover_path.resolve()}[/cyan]  ({cover_path.stat().st_size / 1024:.1f} KB)")
+    console.print(f"\n[dim]D2D投稿は 'python main.py publish' コマンドで別途実行できます。[/dim]")
 
 
 @cli.command()

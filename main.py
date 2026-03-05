@@ -206,20 +206,6 @@ def run(title, author, category, description):
     console.print("\n[bold]--- STEP 3: EPUB生成 ---[/bold]")
     epub_path = build_epub(book, cover_path)
 
-    # ④ Googleドキュメントへ書き出し
-    console.print("\n[bold]--- STEP 4: Googleドキュメント書き出し ---[/bold]")
-    gdoc_url = None
-    try:
-        from src.publishing.gdocs_publisher import GDocsPublisher
-        from config.settings import settings as cfg
-        if cfg.google_service_account_json and cfg.gdoc_document_id:
-            publisher = GDocsPublisher()
-            gdoc_url = publisher.publish(book)
-        else:
-            console.print("[yellow]  ⚠️  GOOGLE_SERVICE_ACCOUNT_JSON または GDOC_DOCUMENT_ID が未設定のためスキップします。[/yellow]")
-    except Exception as e:
-        console.print(f"[yellow]  ⚠️  Googleドキュメント書き出しに失敗しました: {e}[/yellow]")
-
     # 成果物レポート
     console.print("\n" + "=" * 50)
     console.print("[bold green]✅ 成果物が完成しました[/bold green]")
@@ -233,87 +219,7 @@ def run(title, author, category, description):
     console.print(f"  EPUB  : [cyan]{epub_path.resolve()}[/cyan]  ({epub_path.stat().st_size / 1024:.1f} KB)")
     if cover_path and cover_path.exists():
         console.print(f"  カバー: [cyan]{cover_path.resolve()}[/cyan]  ({cover_path.stat().st_size / 1024:.1f} KB)")
-    if gdoc_url:
-        console.print(f"  Gdocs : [cyan]{gdoc_url}[/cyan]")
     console.print(f"\n[dim]D2D投稿は 'python main.py publish' コマンドで別途実行できます。[/dim]")
-
-
-@cli.command()
-@click.option("--book-json", "-b", type=click.Path(exists=True), default=None,
-              help="書き出す book.json ファイルのパス（省略時は最新ファイルを自動検出）")
-@click.option("--doc-id", "-d", default=None,
-              help="書き出し先 Google Document ID（省略時は .env の GDOC_DOCUMENT_ID を使用）")
-@click.option("--title", "-t", default=None,
-              help="--book-json を使わず、タイトルを直接指定して執筆してからGoogleドキュメントに書き出す")
-@click.option("--author", "-a", default="不明", help="著者名（--title 指定時のみ）")
-@click.option("--category", "-c", default="ビジネス", help="カテゴリ（--title 指定時のみ）")
-@click.option("--description", default="", help="本の説明（--title 指定時のみ）")
-def gdocs(book_json, doc_id, title, author, category, description):
-    """⑤ 執筆済みの本をGoogleドキュメントに書き出す"""
-    print_banner()
-
-    from src.publishing.gdocs_publisher import GDocsPublisher
-    from src.content import GeneratedBook, Chapter
-
-    if title:
-        # タイトル指定 → まず執筆する
-        console.print(f"\n[bold]執筆開始: {title}[/bold]\n")
-        from src.research import BookInfo
-        from src.content.book_writer import BookWriter
-
-        book_info = BookInfo(
-            title=title, author=author, source="manual",
-            rank=0, category=category, description=description,
-        )
-        writer = BookWriter()
-        book = writer.write_book(book_info)
-    elif book_json:
-        # JSON ファイルから読み込む
-        import json as _json
-        console.print(f"\n[bold]JSON読み込み: {book_json}[/bold]\n")
-        data = _json.loads(Path(book_json).read_text(encoding="utf-8"))
-        chapters = [Chapter(**ch) for ch in data.get("chapters", [])]
-        book = GeneratedBook(
-            source_title=data["source_title"],
-            source_author=data["source_author"],
-            book_title=data["book_title"],
-            subtitle=data.get("subtitle", ""),
-            description=data.get("description", ""),
-            keywords=data.get("keywords", []),
-            chapters=chapters,
-            foreword=data.get("foreword", ""),
-            afterword=data.get("afterword", ""),
-            total_chars=data.get("total_chars", 0),
-        )
-    else:
-        # data/books から最新の JSON を自動検出
-        import json as _json
-        from config.settings import settings as cfg
-        json_files = sorted(cfg.data_dir.glob("**/*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if not json_files:
-            console.print("[red]❌ 書き出す本が見つかりません。--title か --book-json を指定してください。[/red]")
-            sys.exit(1)
-        latest = json_files[0]
-        console.print(f"\n[bold]最新JSONを使用: {latest}[/bold]\n")
-        data = _json.loads(latest.read_text(encoding="utf-8"))
-        chapters = [Chapter(**ch) for ch in data.get("chapters", [])]
-        book = GeneratedBook(
-            source_title=data["source_title"],
-            source_author=data["source_author"],
-            book_title=data["book_title"],
-            subtitle=data.get("subtitle", ""),
-            description=data.get("description", ""),
-            keywords=data.get("keywords", []),
-            chapters=chapters,
-            foreword=data.get("foreword", ""),
-            afterword=data.get("afterword", ""),
-            total_chars=data.get("total_chars", 0),
-        )
-
-    publisher = GDocsPublisher(document_id=doc_id)
-    url = publisher.publish(book)
-    console.print(f"\n[bold green]🎉 Googleドキュメントへの書き出し完了！[/bold green]")
-    console.print(f"   URL: [cyan]{url}[/cyan]")
 
 
 @cli.command()

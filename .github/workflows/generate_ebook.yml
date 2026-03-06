@@ -48,6 +48,6 @@ jobs:
       - name: 生成ファイルをアップロード
         uses: actions/upload-artifact@v4
         with:
-          name: ebook-${{ inputs.book_title }}
+          name: ebook-${{ github.run_number }}
           path: output/
           retention-days: 30

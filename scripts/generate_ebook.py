@@ -33,13 +33,12 @@ if not BOOK_TITLE:
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 CANDIDATES = [
-    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-exp",
-    "gemini-1.5-flash-8b",
+    "gemini-2.0-flash-lite",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
-    "gemini-1.0-pro",
 ]
 
 SYSTEM_PROMPT = """あなたは「賢者とユイの対話形式」で本の本質を伝える人気ライターです。

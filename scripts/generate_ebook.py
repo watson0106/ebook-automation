@@ -10,7 +10,8 @@ import time
 import html as html_module
 from pathlib import Path
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from ebooklib import epub
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -21,24 +22,22 @@ BOOK_TITLE = os.environ.get("BOOK_TITLE", "").strip()
 
 if not GEMINI_API_KEY:
     print("❌ GEMINI_API_KEY が設定されていません")
-    print("   GitHub リポジトリの Settings → Secrets → GEMINI_API_KEY を設定してください")
+    print("   GitHub リポジトリの Settings → Secrets and variables → Actions")
+    print("   → New repository secret → Name: GEMINI_API_KEY を設定してください")
     sys.exit(1)
 
 if not BOOK_TITLE:
     print("❌ BOOK_TITLE が設定されていません")
     sys.exit(1)
 
-genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 CANDIDATES = [
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-exp",
     "gemini-1.5-flash-8b",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
-    "gemini-1.0-pro",
-    "gemini-pro",
 ]
 
 SYSTEM_PROMPT = """あなたは「賢者とユイの対話形式」で本の本質を伝える人気ライターです。
@@ -64,29 +63,28 @@ SYSTEM_PROMPT = """あなたは「賢者とユイの対話形式」で本の本�
 
 CALL_INTERVAL = 4
 _last_call = 0.0
-_model = None
+MODEL_NAME = None
 
 
 # ── モデル選択 ────────────────────────────────────────────────────────────────
 def select_model():
-    global _model
+    global MODEL_NAME
     print("🔍 使えるモデルをテスト中...")
     last_error = None
     for name in CANDIDATES:
         try:
-            m = genai.GenerativeModel(name)
-            r = m.generate_content("こんにちは", request_options={"timeout": 20})
-            _ = r.text
-            print(f"✅ 使用モデル: {name}")
-            _model = genai.GenerativeModel(
-                model_name=name,
-                system_instruction=SYSTEM_PROMPT,
+            r = client.models.generate_content(
+                model=name,
+                contents="こんにちは",
             )
-            return name
+            _ = r.text
+            MODEL_NAME = name
+            print(f"✅ 使用モデル: {MODEL_NAME}")
+            return
         except Exception as e:
             last_error = e
             s = str(e)
-            code = "404" if "404" in s else "429" if "429" in s else "403" if "403" in s else str(type(e).__name__)
+            code = "404" if "404" in s else "429" if "429" in s else "403" if "403" in s else type(e).__name__
             print(f"  ✗ {name} ({code})")
     print(f"\n❌ どのモデルも使えませんでした。最後のエラー: {last_error}")
     sys.exit(1)
@@ -104,9 +102,16 @@ def call_gemini(prompt: str, max_tokens: int = 4096) -> str:
             time.sleep(backoff)
         try:
             _last_call = time.time()
-            cfg = genai.GenerationConfig(temperature=0.9, max_output_tokens=max_tokens)
-            res = _model.generate_content(prompt, generation_config=cfg)
-            return res.text
+            r = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.9,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            return r.text
         except Exception as e:
             if "429" in str(e) and attempt < 3:
                 continue

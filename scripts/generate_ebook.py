@@ -319,7 +319,7 @@ def main():
 - subtitle: 「〇〇が教えてくれる人生の知恵」形式のサブタイトル
 - description: 本の説明文（300文字程度）
 - keywords: キーワードの配列（3つ）
-- chapter_titles: 章タイトルの配列（5〜7章）""", max_tokens=1024, json_mode=True))
+- chapter_titles: 章タイトルの配列（5〜7章）""", max_tokens=2048, json_mode=True))
 
     print(f"   タイトル: {plan['book_title']}")
     toc_str = "\n".join(f"{i+1}. {t}" for i, t in enumerate(plan["chapter_titles"]))

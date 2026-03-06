@@ -1,0 +1,38 @@
+name: eBook生成
+
+on:
+  workflow_dispatch:
+    inputs:
+      book_title:
+        description: '本のタイトル（例: 7つの習慣）'
+        required: true
+        type: string
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: 依存パッケージをインストール
+        run: pip install --upgrade google-generativeai ebooklib Pillow python-docx
+
+      - name: eBook生成
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BOOK_TITLE: ${{ inputs.book_title }}
+        run: python scripts/generate_ebook.py
+
+      - name: 生成ファイルをアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebook-${{ inputs.book_title }}
+          path: output/
+          retention-days: 30

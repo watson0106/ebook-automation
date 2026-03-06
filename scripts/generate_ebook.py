@@ -35,9 +35,11 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 CANDIDATES = [
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash",
+    "gemini-2.0-flash-exp",
     "gemini-1.5-flash-8b",
     "gemini-1.5-flash",
     "gemini-1.5-pro",
+    "gemini-1.0-pro",
 ]
 
 SYSTEM_PROMPT = """あなたは「賢者とユイの対話形式」で本の本質を伝える人気ライターです。
@@ -69,6 +71,18 @@ MODEL_NAME = None
 # ── モデル選択 ────────────────────────────────────────────────────────────────
 def select_model():
     global MODEL_NAME
+
+    # まず利用可能なモデル一覧を取得して表示
+    print("📋 APIキーで利用可能なモデルを確認中...")
+    try:
+        available = [m.name for m in client.models.list()]
+        print(f"   利用可能なモデル数: {len(available)}")
+        gen_models = [m for m in available if "gemini" in m.lower()]
+        print(f"   Geminiモデル: {gen_models[:10]}")
+    except Exception as e:
+        print(f"   モデル一覧取得失敗: {e}")
+        available = []
+
     print("🔍 使えるモデルをテスト中...")
     last_error = None
     for name in CANDIDATES:
@@ -85,8 +99,17 @@ def select_model():
             last_error = e
             s = str(e)
             code = "404" if "404" in s else "429" if "429" in s else "403" if "403" in s else type(e).__name__
-            print(f"  ✗ {name} ({code})")
-    print(f"\n❌ どのモデルも使えませんでした。最後のエラー: {last_error}")
+            print(f"  ✗ {name} ({code}): {str(e)[:120]}")
+
+    print(f"\n❌ どのモデルも使えませんでした。")
+    print(f"   利用可能なモデル一覧: {available}")
+    print(f"   最後のエラー: {last_error}")
+    print()
+    print("対処法:")
+    print("  1. Google Cloud Console で 'Generative Language API' を有効化してください")
+    print("     https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com")
+    print("  2. または Google AI Studio で新しいAPIキーを作成してください")
+    print("     https://aistudio.google.com/apikey")
     sys.exit(1)
 
 

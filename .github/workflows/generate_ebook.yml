@@ -22,7 +22,7 @@ jobs:
           cache: pip
 
       - name: 依存パッケージをインストール
-        run: pip install --upgrade google-generativeai ebooklib Pillow python-docx
+        run: pip install --upgrade google-genai ebooklib Pillow python-docx
 
       - name: eBook生成
         env:

@@ -86,20 +86,27 @@ def select_model():
     print("🔍 使えるモデルをテスト中...")
     last_error = None
     for name in CANDIDATES:
-        try:
-            r = client.models.generate_content(
-                model=name,
-                contents="こんにちは",
-            )
-            _ = r.text
-            MODEL_NAME = name
-            print(f"✅ 使用モデル: {MODEL_NAME}")
-            return
-        except Exception as e:
-            last_error = e
-            s = str(e)
-            code = "404" if "404" in s else "429" if "429" in s else "403" if "403" in s else type(e).__name__
-            print(f"  ✗ {name} ({code}): {str(e)[:120]}")
+        for attempt in range(3):  # 429時は最大3回リトライ
+            try:
+                r = client.models.generate_content(
+                    model=name,
+                    contents="こんにちは",
+                )
+                _ = r.text
+                MODEL_NAME = name
+                print(f"✅ 使用モデル: {MODEL_NAME}")
+                return
+            except Exception as e:
+                last_error = e
+                s = str(e)
+                if "429" in s and attempt < 2:
+                    wait = 30 * (attempt + 1)
+                    print(f"  ⏳ {name} レート制限 — {wait}秒待機してリトライ...")
+                    time.sleep(wait)
+                    continue
+                code = "404" if "404" in s else "429" if "429" in s else "403" if "403" in s else type(e).__name__
+                print(f"  ✗ {name} ({code})")
+                break
 
     print(f"\n❌ どのモデルも使えませんでした。")
     print(f"   利用可能なモデル一覧: {available}")

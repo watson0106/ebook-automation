@@ -131,18 +131,12 @@ def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) ->
             time.sleep(backoff)
         try:
             _last_call = time.time()
-            if json_mode:
-                cfg = types.GenerateContentConfig(
-                    temperature=0.9,
-                    max_output_tokens=max_tokens,
-                    response_mime_type="application/json",
-                )
-            else:
-                cfg = types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=0.9,
-                    max_output_tokens=max_tokens,
-                )
+            # JSON呼び出しはシステムプロンプトなし（対話形式で返さないため）
+            cfg = types.GenerateContentConfig(
+                temperature=0.7 if json_mode else 0.9,
+                max_output_tokens=max_tokens,
+                **({"system_instruction": SYSTEM_PROMPT} if not json_mode else {}),
+            )
             r = client.models.generate_content(
                 model=MODEL_NAME,
                 contents=prompt,

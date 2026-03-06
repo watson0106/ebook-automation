@@ -131,20 +131,24 @@ def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) ->
             time.sleep(backoff)
         try:
             _last_call = time.time()
-            cfg = types.GenerateContentConfig(
-                temperature=0.9,
-                max_output_tokens=max_tokens,
-            )
             if json_mode:
-                cfg.response_mime_type = "application/json"
+                cfg = types.GenerateContentConfig(
+                    temperature=0.9,
+                    max_output_tokens=max_tokens,
+                    response_mime_type="application/json",
+                )
             else:
-                cfg.system_instruction = SYSTEM_PROMPT
+                cfg = types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.9,
+                    max_output_tokens=max_tokens,
+                )
             r = client.models.generate_content(
                 model=MODEL_NAME,
                 contents=prompt,
                 config=cfg,
             )
-            return r.text
+            return r.text or ""
         except Exception as e:
             if "429" in str(e) and attempt < 3:
                 continue
@@ -153,12 +157,20 @@ def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) ->
 
 
 def extract_json(text: str) -> dict:
+    if not text:
+        raise ValueError("APIレスポンスが空です")
+    # json_mode の場合はそのままパース試行
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
     m = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
     if m:
         return json.loads(m.group(1))
     m = re.search(r"\{[\s\S]+\}", text)
     if m:
         return json.loads(m.group(0))
+    print(f"  ⚠️ JSONパース失敗。レスポンス先頭200文字: {text[:200]!r}")
     raise ValueError("JSONが見つかりません")
 
 

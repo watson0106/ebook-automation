@@ -24,6 +24,21 @@ jobs:
       - name: 依存パッケージをインストール
         run: pip install --upgrade google-genai ebooklib Pillow python-docx
 
+      - name: APIキー診断
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "=== 利用可能なモデル一覧 ==="
+          curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          if 'models' in d:
+              for m in d['models']:
+                  print(m.get('name',''))
+          else:
+              print('ERROR:', json.dumps(d, ensure_ascii=False))
+          "
+
       - name: eBook生成
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

@@ -159,18 +159,33 @@ def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) ->
 def extract_json(text: str) -> dict:
     if not text:
         raise ValueError("APIレスポンスが空です")
-    # json_mode の場合はそのままパース試行
+    # そのままパース
     try:
-        return json.loads(text)
+        return json.loads(text.strip())
     except json.JSONDecodeError:
         pass
+    # コードブロック内
     m = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
     if m:
-        return json.loads(m.group(1))
-    m = re.search(r"\{[\s\S]+\}", text)
-    if m:
-        return json.loads(m.group(0))
-    print(f"  ⚠️ JSONパース失敗。レスポンス先頭200文字: {text[:200]!r}")
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
+    # 括弧の深さを数えて正確に抽出
+    start = text.find('{')
+    if start != -1:
+        depth = 0
+        for i, c in enumerate(text[start:], start):
+            if c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
+    print(f"  ⚠️ JSONパース失敗。レスポンス先頭300文字: {text[:300]!r}")
     raise ValueError("JSONが見つかりません")
 
 
@@ -289,16 +304,17 @@ def main():
 
     # 書籍情報
     print("🔍 書籍情報を取得中...")
-    book_info = extract_json(call_gemini(f"""以下の書籍タイトルの情報をJSON形式で回答してください。
+    book_info = extract_json(call_gemini(f"""以下の書籍の情報をJSONのみで回答してください。前置きや説明は不要です。
 
 タイトル: {BOOK_TITLE}
 
-以下のキーを含むJSONオブジェクトを返してください：
-- author: 著者名（不明なら"不明"）
-- category: ジャンル（ビジネス/自己啓発/投資/心理学/小説/歴史/科学 など）
-- description: 本の内容を3〜5文で説明
-
-実在する書籍なら正確に、不明な場合は推測で構いません。""", max_tokens=512, json_mode=True))
+```json
+{{
+  "author": "著者名",
+  "category": "自己啓発",
+  "description": "2文以内の説明"
+}}
+```""", max_tokens=1024, json_mode=False))
 
     author = book_info.get("author", "不明")
     category = book_info.get("category", "ビジネス")
@@ -307,19 +323,17 @@ def main():
 
     # 章構成
     print("📚 章構成を計画中...")
-    plan = extract_json(call_gemini(f"""以下の本について賢者とユイの対話形式の解説本を作ります。
+    plan = extract_json(call_gemini(f"""『{BOOK_TITLE}』の解説書の構成をJSONのみで返してください。前置きや説明は不要です。
 
-対象書籍:
-タイトル: {BOOK_TITLE} / 著者: {author}
-カテゴリ: {category}
-説明: {description or '（なし）'}
-
-以下のキーを含むJSONオブジェクトを返してください：
-- book_title: 「【賢者とユイが語る】〇〇の本質」形式のタイトル
-- subtitle: 「〇〇が教えてくれる人生の知恵」形式のサブタイトル
-- description: 本の説明文（300文字程度）
-- keywords: キーワードの配列（3つ）
-- chapter_titles: 章タイトルの配列（5〜7章）""", max_tokens=2048, json_mode=True))
+```json
+{{
+  "book_title": "【賢者とユイが語る】嫌われる勇気の本質",
+  "subtitle": "アドラー心理学が教えてくれる人生の知恵",
+  "description": "100文字以内の説明",
+  "keywords": ["キーワード1", "キーワード2", "キーワード3"],
+  "chapter_titles": ["第1章タイトル", "第2章タイトル", "第3章タイトル", "第4章タイトル", "第5章タイトル", "第6章タイトル"]
+}}
+```""", max_tokens=2048, json_mode=False))
 
     print(f"   タイトル: {plan['book_title']}")
     toc_str = "\n".join(f"{i+1}. {t}" for i, t in enumerate(plan["chapter_titles"]))

@@ -120,7 +120,7 @@ def select_model():
 
 
 # ── API呼び出し ───────────────────────────────────────────────────────────────
-def call_gemini(prompt: str, max_tokens: int = 4096) -> str:
+def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) -> str:
     global _last_call
     wait = CALL_INTERVAL - (time.time() - _last_call)
     if wait > 0:
@@ -131,14 +131,18 @@ def call_gemini(prompt: str, max_tokens: int = 4096) -> str:
             time.sleep(backoff)
         try:
             _last_call = time.time()
+            cfg = types.GenerateContentConfig(
+                temperature=0.9,
+                max_output_tokens=max_tokens,
+            )
+            if json_mode:
+                cfg.response_mime_type = "application/json"
+            else:
+                cfg.system_instruction = SYSTEM_PROMPT
             r = client.models.generate_content(
                 model=MODEL_NAME,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=0.9,
-                    max_output_tokens=max_tokens,
-                ),
+                config=cfg,
             )
             return r.text
         except Exception as e:
@@ -277,14 +281,12 @@ def main():
 
 タイトル: {BOOK_TITLE}
 
-```json
-{{
-  "author": "著者名（不明なら不明）",
-  "category": "ジャンル（ビジネス/自己啓発/投資/心理学/小説/歴史/科学 など）",
-  "description": "本の内容を3〜5文で説明"
-}}
-```
-実在する書籍なら正確に、不明な場合は推測で構いません。""", max_tokens=512))
+以下のキーを含むJSONオブジェクトを返してください：
+- author: 著者名（不明なら"不明"）
+- category: ジャンル（ビジネス/自己啓発/投資/心理学/小説/歴史/科学 など）
+- description: 本の内容を3〜5文で説明
+
+実在する書籍なら正確に、不明な場合は推測で構いません。""", max_tokens=512, json_mode=True))
 
     author = book_info.get("author", "不明")
     category = book_info.get("category", "ビジネス")
@@ -295,23 +297,17 @@ def main():
     print("📚 章構成を計画中...")
     plan = extract_json(call_gemini(f"""以下の本について賢者とユイの対話形式の解説本を作ります。
 
-## 対象書籍
+対象書籍:
 タイトル: {BOOK_TITLE} / 著者: {author}
 カテゴリ: {category}
 説明: {description or '（なし）'}
 
-以下のJSON形式で出力してください：
-```json
-{{
-  "book_title": "【賢者とユイが語る】〇〇の本質",
-  "subtitle": "〇〇が教えてくれる人生の知恵",
-  "description": "本の説明文（300文字程度）",
-  "keywords": ["キーワード1", "キーワード2", "キーワード3"],
-  "chapter_titles": ["第1章タイトル", "第2章タイトル", "第3章タイトル",
-                      "第4章タイトル", "第5章タイトル", "第6章タイトル"]
-}}
-```
-章は5〜7章構成にしてください。""", max_tokens=1024))
+以下のキーを含むJSONオブジェクトを返してください：
+- book_title: 「【賢者とユイが語る】〇〇の本質」形式のタイトル
+- subtitle: 「〇〇が教えてくれる人生の知恵」形式のサブタイトル
+- description: 本の説明文（300文字程度）
+- keywords: キーワードの配列（3つ）
+- chapter_titles: 章タイトルの配列（5〜7章）""", max_tokens=1024, json_mode=True))
 
     print(f"   タイトル: {plan['book_title']}")
     toc_str = "\n".join(f"{i+1}. {t}" for i, t in enumerate(plan["chapter_titles"]))

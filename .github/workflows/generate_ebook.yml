@@ -22,7 +22,7 @@ jobs:
           cache: pip
 
       - name: 依存パッケージをインストール
-        run: pip install --upgrade google-genai ebooklib Pillow python-docx
+        run: pip install --upgrade google-genai ebooklib Pillow python-docx google-api-python-client google-auth
 
       - name: APIキー診断
         env:
@@ -43,6 +43,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BOOK_TITLE: ${{ inputs.book_title }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         run: python scripts/generate_ebook.py
 
       - name: 生成ファイルをアップロード

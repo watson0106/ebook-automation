@@ -16,6 +16,14 @@ from ebooklib import epub
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
+try:
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+    _GDRIVE_AVAILABLE = True
+except ImportError:
+    _GDRIVE_AVAILABLE = False
+
 # ── 設定 ──────────────────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 BOOK_TITLE = os.environ.get("BOOK_TITLE", "").strip()
@@ -41,25 +49,33 @@ CANDIDATES = [
     "gemini-1.5-pro",
 ]
 
-SYSTEM_PROMPT = """あなたは「賢者とユイの対話形式」で本の本質を伝える人気ライターです。
+SYSTEM_PROMPT = """あなたは「先生とユイの対話形式」で本の本質を伝える人気ライターです。
 
 ## キャラクター設定
 
-**賢者（けんじゃ）**
+**先生（賢者）**
 - 50代の穏やかな老哲学者
 - 難しい概念をシンプルなたとえ話で説明する
+- ユイからは必ず「先生」と呼ばれる
 - 口癖：「そうじゃな」「面白い視点じゃ」「核心を突いておるな」
 
 **ユイ（ゆい）**
-- 20代の好奇心旺盛な読者の代弁者
-- 読者が「自分も同じこと思ってた！」と共感できる存在
-- 口癖：「なるほど！」「えっ、それってどういうことですか？」「つまり〜ってことですね！」
+- 20代の読者の代弁者
+- 【重要】物語の冒頭ではアンチ・懐疑的な立場でスタートする
+  - 自己啓発本や成功哲学に対して斜に構えた態度
+  - 「そんなの当たり前じゃないですか」「本当にそれで変わるんですか？」「胡散臭い...」
+- 先生との対話を通じて、徐々に本の価値・深さに気づいていく
+- 最終的には素直に学び、読者と一緒に成長する存在
+- 先生のことは必ず「先生」と呼ぶ
+- 口癖（懐疑期）：「でも先生、それって...」「正直、怪しくないですか？」「本当にそんな単純な話なんですか？」
+- 口癖（理解期）：「あ、なるほど！」「先生、それってつまり...」「わかってきた気がします！」
 
 ## 執筆ルール
-1. 対話形式（賢者とユイの会話）で書く
+1. 対話形式（先生とユイの会話）で書く
 2. 各章は2000〜3000文字を目安に
 3. 具体的な例やたとえ話を豊富に使う
 4. 著作権に配慮し、本の文章を直接引用せず、テーマや考え方を自分の言葉で解説する
+5. ユイは先生のことを必ず「先生」と呼ぶこと（「賢者」とは呼ばない）
 """
 
 CALL_INTERVAL = 4
@@ -288,6 +304,49 @@ def build_docx(plan, foreword, chapters, afterword, out_dir: Path) -> Path:
     return path
 
 
+# ── Google Docs アップロード ───────────────────────────────────────────────────
+def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
+    """docxをGoogle Driveにアップロードし、Google Docsに変換して共有URLを返す"""
+    credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    if not credentials_json:
+        print("⚠️  GOOGLE_CREDENTIALS_JSON が未設定のためGoogle Docsアップロードをスキップ")
+        return None
+    if not _GDRIVE_AVAILABLE:
+        print("⚠️  google-api-python-client が未インストールのためGoogle Docsアップロードをスキップ")
+        return None
+    try:
+        credentials_info = json.loads(credentials_json)
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info,
+            scopes=["https://www.googleapis.com/auth/drive"],
+        )
+        service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+
+        file_metadata = {
+            "name": title,
+            "mimeType": "application/vnd.google-apps.document",
+        }
+        media = MediaFileUpload(
+            str(docx_path),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            resumable=True,
+        )
+        file = service.files().create(
+            body=file_metadata, media_body=media, fields="id,webViewLink"
+        ).execute()
+
+        # 誰でも閲覧可能に設定
+        service.permissions().create(
+            fileId=file["id"],
+            body={"type": "anyone", "role": "reader"},
+        ).execute()
+
+        return file.get("webViewLink", "")
+    except Exception as e:
+        print(f"⚠️  Google Docsアップロード失敗: {e}")
+        return None
+
+
 # ── メイン ────────────────────────────────────────────────────────────────────
 def main():
     select_model()
@@ -336,26 +395,39 @@ def main():
     print("✍️  まえがきを執筆中...")
     foreword = call_gemini(f"""『{BOOK_TITLE}』（著：{author}）の解説書のまえがきを書いてください。
 - この本を手に取った読者へのメッセージ
-- 賢者とユイというキャラクターの紹介
+- 先生とユイというキャラクターの紹介（ユイは最初は懐疑的・アンチだが先生との対話で学んでいく）
 - この解説本で得られること
 - 400〜600文字、マークダウン形式""")
 
     # 各章
     chapters = []
+    total_chapters = len(plan["chapter_titles"])
     for i, title in enumerate(plan["chapter_titles"], 1):
         print(f"✍️  第{i}章「{title}」を執筆中...")
+        # ユイの態度フェーズを章番号に応じて設定
+        if i == 1:
+            yui_phase = "【第1章：懐疑・アンチフェーズ】ユイは懐疑的・批判的。「本当にそんなことで変わるんですか？」「胡散臭い」「先生、それって怪しくないですか？」などの反応が多い。この本の価値にまだ全く懐疑的。"
+        elif i <= total_chapters // 2:
+            yui_phase = f"【第{i}章：変化フェーズ】ユイは少しずつ興味を持ち始めているが、まだ半信半疑。「先生...少しだけわかってきた気がします」「でも本当にそれだけで？」という反応が混在する。"
+        else:
+            yui_phase = f"【第{i}章：理解・成長フェーズ】ユイは本の価値を理解し始め、積極的に質問し学ぼうとしている。「先生、それってつまり...」「なるほど！そういうことだったんですね！」と素直に学ぶ姿勢になっている。"
+
         content = call_gemini(f"""『{BOOK_TITLE}』（著：{author}）の解説本の第{i}章を書いてください。
 
 章タイトル: {title}
 全章構成:
 {toc_str}
 
+ユイのキャラクター指示：
+{yui_phase}
+
 注意：
 - 本の文章を直接引用しない（著作権配慮）
 - テーマ・考え方を自分の言葉で解説する
-- 賢者とユイの自然な対話形式
+- 先生とユイの自然な対話形式
+- ユイは先生のことを必ず「先生」と呼ぶ（「賢者」とは呼ばない）
 - 2000〜3000文字
-- マークダウン形式（**ユイ**：〜 / **賢者**：〜）""", max_tokens=4096)
+- マークダウン形式（**ユイ**：〜 / **先生**：〜）""", max_tokens=4096)
         chapters.append({"number": i, "title": title, "content": content})
         print(f"   ✅ 完了 ({len(content):,}文字)")
 
@@ -385,6 +457,10 @@ def main():
     epub_path = build_epub(plan, foreword, chapters, afterword, out)
     docx_path = build_docx(plan, foreword, chapters, afterword, out)
 
+    # Google Docs にアップロード
+    print("📤 Google Docs にアップロード中...")
+    gdocs_url = upload_to_google_docs(docx_path, plan["book_title"])
+
     print()
     print("=" * 50)
     print("🎉 完成！")
@@ -395,6 +471,8 @@ def main():
     print(f"💾 Markdown : {md_path}  ({md_path.stat().st_size // 1024} KB)")
     print(f"💾 EPUB     : {epub_path}  ({epub_path.stat().st_size // 1024} KB)")
     print(f"💾 Word     : {docx_path}  ({docx_path.stat().st_size // 1024} KB)")
+    if gdocs_url:
+        print(f"🌐 Google Docs : {gdocs_url}")
     print()
     print("GitHub Actions の Artifacts からダウンロードできます")
 

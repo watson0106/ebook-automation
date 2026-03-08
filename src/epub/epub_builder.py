@@ -148,15 +148,16 @@ def markdown_to_html(md_text: str) -> str:
                 html_parts.append("</p>")
                 in_paragraph = False
             html_parts.append(f"<h1>{_escape(stripped[2:])}</h1>")
-        # 賢者の発話パターン: **賢者**：...
-        elif re.match(r"\*\*賢者\*\*[：:]", stripped):
+        # 賢者/先生の発話パターン: **賢者**：... または **先生**：...
+        elif re.match(r"\*\*(?:賢者|先生)\*\*[：:]", stripped):
             if in_paragraph:
                 html_parts.append("</p>")
                 in_paragraph = False
-            content = re.sub(r"^\*\*賢者\*\*[：:]\s*", "", stripped)
+            speaker = re.match(r"^\*\*(.+?)\*\*[：:]", stripped).group(1)
+            content = re.sub(r"^\*\*(?:賢者|先生)\*\*[：:]\s*", "", stripped)
             html_parts.append(
                 f'<div class="dialog-sage">'
-                f'<span class="speaker-sage">賢者</span><br/>{_inline_md(_escape(content))}'
+                f'<span class="speaker-sage">{speaker}</span><br/>{_inline_md(_escape(content))}'
                 f"</div>"
             )
         # ユイの発話パターン: **ユイ**：...

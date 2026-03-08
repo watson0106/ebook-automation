@@ -46,9 +46,3 @@ jobs:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         run: python scripts/generate_ebook.py
 
-      - name: 生成ファイルをアップロード
-        uses: actions/upload-artifact@v4
-        with:
-          name: ebook-${{ github.run_number }}
-          path: output/
-          retention-days: 30

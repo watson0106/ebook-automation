@@ -84,10 +84,25 @@ MODEL_NAME = None
 
 
 # ── モデル選択 ────────────────────────────────────────────────────────────────
+def _parse_retry_delay(error_str: str) -> int:
+    """エラーメッセージからretryDelay秒数を取得（見つからなければ60秒）"""
+    m = re.search(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)", error_str)
+    if m:
+        return int(m.group(1)) + 5  # バッファ5秒追加
+    m = re.search(r"retry in (\d+)[\.\d]*\s*s", error_str)
+    if m:
+        return int(m.group(1)) + 5
+    return 65  # デフォルト
+
+
+def _is_quota_exhausted(error_str: str) -> bool:
+    """日次クォータ超過かどうか（レート制限とは別）"""
+    return "RESOURCE_EXHAUSTED" in error_str or "Quota exceeded" in error_str
+
+
 def select_model():
     global MODEL_NAME
 
-    # まず利用可能なモデル一覧を取得して表示
     print("📋 APIキーで利用可能なモデルを確認中...")
     try:
         available = [m.name for m in client.models.list()]
@@ -101,7 +116,7 @@ def select_model():
     print("🔍 使えるモデルをテスト中...")
     last_error = None
     for name in CANDIDATES:
-        for attempt in range(3):  # 429時は最大3回リトライ
+        for attempt in range(3):
             try:
                 r = client.models.generate_content(
                     model=name,
@@ -114,24 +129,27 @@ def select_model():
             except Exception as e:
                 last_error = e
                 s = str(e)
-                if "429" in s and attempt < 2:
-                    wait = 30 * (attempt + 1)
-                    print(f"  ⏳ {name} レート制限 — {wait}秒待機してリトライ...")
-                    time.sleep(wait)
-                    continue
+                if "429" in s or "RESOURCE_EXHAUSTED" in s:
+                    if _is_quota_exhausted(s):
+                        # 日次クォータ超過 → このモデルはスキップ
+                        print(f"  ✗ {name} (日次クォータ超過 — 次のモデルへ)")
+                        break
+                    elif attempt < 2:
+                        wait = _parse_retry_delay(s)
+                        print(f"  ⏳ {name} レート制限 — {wait}秒待機してリトライ...")
+                        time.sleep(wait)
+                        continue
                 code = "404" if "404" in s else "429" if "429" in s else "403" if "403" in s else type(e).__name__
                 print(f"  ✗ {name} ({code})")
                 break
 
     print(f"\n❌ どのモデルも使えませんでした。")
-    print(f"   利用可能なモデル一覧: {available}")
     print(f"   最後のエラー: {last_error}")
     print()
     print("対処法:")
-    print("  1. Google Cloud Console で 'Generative Language API' を有効化してください")
-    print("     https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com")
-    print("  2. または Google AI Studio で新しいAPIキーを作成してください")
+    print("  1. Google AI Studio で新しいAPIキーを作成してください")
     print("     https://aistudio.google.com/apikey")
+    print("  2. または有料プランへのアップグレードをご検討ください")
     sys.exit(1)
 
 
@@ -141,13 +159,9 @@ def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) ->
     wait = CALL_INTERVAL - (time.time() - _last_call)
     if wait > 0:
         time.sleep(wait)
-    for attempt, backoff in enumerate([0, 30, 60, 120]):
-        if backoff:
-            print(f"  ⚠️ レート制限 — {backoff}秒待機中...")
-            time.sleep(backoff)
+    for attempt in range(4):
         try:
             _last_call = time.time()
-            # JSON呼び出しはシステムプロンプトなし（対話形式で返さないため）
             cfg = types.GenerateContentConfig(
                 temperature=0.7 if json_mode else 0.9,
                 max_output_tokens=max_tokens,
@@ -160,7 +174,14 @@ def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) ->
             )
             return r.text or ""
         except Exception as e:
-            if "429" in str(e) and attempt < 3:
+            s = str(e)
+            if ("429" in s or "RESOURCE_EXHAUSTED" in s) and attempt < 3:
+                if _is_quota_exhausted(s):
+                    # 日次クォータ超過は待っても解決しないので即失敗
+                    raise
+                wait_sec = _parse_retry_delay(s)
+                print(f"  ⚠️ レート制限 — {wait_sec}秒待機中... (試行 {attempt+1}/4)")
+                time.sleep(wait_sec)
                 continue
             raise
     raise RuntimeError("Gemini API 呼び出しに失敗しました")

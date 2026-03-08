@@ -17,8 +17,8 @@ CSS_STYLES = """
 
 body {
     font-family: "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", sans-serif;
-    font-size: 1em;
-    line-height: 1.8;
+    font-size: 1.15em;
+    line-height: 2.0;
     color: #333333;
     margin: 0;
     padding: 1em 1.5em;

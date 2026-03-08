@@ -220,7 +220,7 @@ def md_to_html(text: str) -> str:
 
 
 # ── EPUB生成 ──────────────────────────────────────────────────────────────────
-CSS = b"body{font-family:serif;line-height:1.9;margin:2em;}h1,h2,h3{margin-top:1.5em;}p{margin:.5em 0;}strong{font-weight:bold;}"
+CSS = b"body{font-family:serif;font-size:1.15em;line-height:2.0;margin:2em;}h1,h2,h3{margin-top:1.5em;}p{margin:.5em 0;}strong{font-weight:bold;}"
 
 
 def build_epub(plan, foreword, chapters, afterword, out_dir: Path) -> Path:

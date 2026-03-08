@@ -516,6 +516,11 @@ def main():
     parts += ["## あとがき\n", afterword]
     full_text = "\n".join(parts)
 
+    # Markdownファイルとして保存（GitHub Actions Artifactで取得可能）
+    md_path = out / f"{safe}.md"
+    md_path.write_text(full_text, encoding="utf-8")
+    print(f"💾 Markdownファイルを保存: {md_path}")
+
     # Google Docs にアップロード（一時的にdocxを作成してアップロード後に削除）
     docx_path = build_docx(plan, foreword, chapters, afterword, out)
     print("📤 Google Docs にアップロード中...")
@@ -529,10 +534,11 @@ def main():
     print(f"📖 タイトル : {plan['book_title']}")
     print(f"📝 総文字数 : {len(full_text):,} 文字")
     print(f"📚 章数     : {len(chapters)} 章")
+    print(f"📄 出力ファイル: {md_path}")
     if gdocs_url:
         print(f"🌐 Google Docs : {gdocs_url}")
     else:
-        print("⚠️  Google Docs へのアップロードに失敗しました")
+        print("⚠️  Google Docs へのアップロードに失敗しました（Artifactからダウンロード可能）")
 
 
 if __name__ == "__main__":

@@ -326,6 +326,25 @@ def build_docx(plan, foreword, chapters, afterword, out_dir: Path) -> Path:
 
 
 # ── Google Docs アップロード ───────────────────────────────────────────────────
+def cleanup_old_drive_files(service) -> None:
+    """サービスアカウントのDriveにある古いファイルを削除してストレージを解放する"""
+    try:
+        results = service.files().list(
+            pageSize=100,
+            fields="files(id, name, mimeType)",
+        ).execute()
+        files = results.get("files", [])
+        if files:
+            print(f"  🗑️  古いファイルを {len(files)} 件削除中...")
+            for f in files:
+                try:
+                    service.files().delete(fileId=f["id"]).execute()
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"  ⚠️  古いファイルの削除に失敗: {e}")
+
+
 def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
     """docxをGoogle Driveにアップロードし、Google Docsに変換して共有URLを返す"""
     credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
@@ -342,6 +361,9 @@ def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
             scopes=["https://www.googleapis.com/auth/drive"],
         )
         service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+
+        # アップロード前に古いファイルを削除してストレージを確保
+        cleanup_old_drive_files(service)
 
         file_metadata = {
             "name": title,

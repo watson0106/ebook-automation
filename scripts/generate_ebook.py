@@ -327,22 +327,40 @@ def build_docx(plan, foreword, chapters, afterword, out_dir: Path) -> Path:
 
 # ── Google Docs アップロード ───────────────────────────────────────────────────
 def cleanup_old_drive_files(service) -> None:
-    """サービスアカウントのDriveにある古いファイルを削除してストレージを解放する"""
+    """サービスアカウントのDriveにある古いファイルとゴミ箱を削除してストレージを解放する"""
+    # 通常ファイルを全ページ削除
+    deleted = 0
     try:
-        results = service.files().list(
-            pageSize=100,
-            fields="files(id, name, mimeType)",
-        ).execute()
-        files = results.get("files", [])
-        if files:
-            print(f"  🗑️  古いファイルを {len(files)} 件削除中...")
+        page_token = None
+        while True:
+            params = {
+                "pageSize": 1000,
+                "fields": "nextPageToken, files(id)",
+                "q": "trashed = false",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            results = service.files().list(**params).execute()
+            files = results.get("files", [])
             for f in files:
                 try:
                     service.files().delete(fileId=f["id"]).execute()
+                    deleted += 1
                 except Exception:
                     pass
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
     except Exception as e:
-        print(f"  ⚠️  古いファイルの削除に失敗: {e}")
+        print(f"  ⚠️  ファイル削除中にエラー: {e}")
+
+    # ゴミ箱も空にする（ゴミ箱もストレージを消費するため）
+    try:
+        service.files().emptyTrash().execute()
+    except Exception as e:
+        print(f"  ⚠️  ゴミ箱の削除に失敗: {e}")
+
+    print(f"  🗑️  {deleted} 件のファイルを削除し、ゴミ箱を空にしました")
 
 
 def upload_to_google_docs(docx_path: Path, title: str) -> str | None:

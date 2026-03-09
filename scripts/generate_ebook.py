@@ -383,10 +383,13 @@ def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
         # アップロード前に古いファイルを削除してストレージを確保
         cleanup_old_drive_files(service)
 
+        folder_id = os.environ.get("GDRIVE_FOLDER_ID", "")
         file_metadata = {
             "name": title,
             "mimeType": "application/vnd.google-apps.document",
         }
+        if folder_id:
+            file_metadata["parents"] = [folder_id]
         media = MediaFileUpload(
             str(docx_path),
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

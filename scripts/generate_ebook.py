@@ -18,6 +18,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 try:
     from google.oauth2 import service_account
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
     _GDRIVE_AVAILABLE = True
@@ -365,23 +367,50 @@ def cleanup_old_drive_files(service) -> None:
 
 def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
     """docxをGoogle Driveにアップロードし、Google Docsに変換して共有URLを返す"""
-    credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-    if not credentials_json:
-        print("⚠️  GOOGLE_CREDENTIALS_JSON が未設定のためGoogle Docsアップロードをスキップ")
-        return None
     if not _GDRIVE_AVAILABLE:
         print("⚠️  google-api-python-client が未インストールのためGoogle Docsアップロードをスキップ")
         return None
-    try:
+
+    credentials = None
+
+    # 方法1: OAuthリフレッシュトークン（推奨 - ユーザーのDriveクォータを使用）
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
+    if client_id and client_secret and refresh_token:
+        credentials = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=["https://www.googleapis.com/auth/drive"],
+        )
+        credentials.refresh(Request())
+        print("  🔑 OAuthユーザー認証を使用")
+
+    # 方法2: サービスアカウント（フォールバック）
+    if credentials is None:
+        credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+        if not credentials_json:
+            print("⚠️  Google認証情報が未設定のためGoogle Docsアップロードをスキップ")
+            print("     GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN")
+            print("     または GOOGLE_CREDENTIALS_JSON を設定してください")
+            return None
         credentials_info = json.loads(credentials_json)
         credentials = service_account.Credentials.from_service_account_info(
             credentials_info,
             scopes=["https://www.googleapis.com/auth/drive"],
         )
+        print("  🔑 サービスアカウント認証を使用")
+
+    try:
         service = build("drive", "v3", credentials=credentials, cache_discovery=False)
 
-        # アップロード前に古いファイルを削除してストレージを確保
-        cleanup_old_drive_files(service)
+        # サービスアカウント使用時のみ古いファイルを削除
+        is_service_account = isinstance(credentials, service_account.Credentials)
+        if is_service_account:
+            cleanup_old_drive_files(service)
 
         folder_id = os.environ.get("GDRIVE_FOLDER_ID", "")
         file_metadata = {
@@ -399,17 +428,18 @@ def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
             body=file_metadata, media_body=media, fields="id,webViewLink"
         ).execute()
 
-        # オーナーをユーザーのGmailに移譲（サービスアカウントのストレージ節約）
-        gmail_address = os.environ.get("GMAIL_ADDRESS", "")
-        if gmail_address:
-            try:
-                service.permissions().create(
-                    fileId=file["id"],
-                    body={"type": "user", "role": "owner", "emailAddress": gmail_address},
-                    transferOwnership=True,
-                ).execute()
-            except Exception as e:
-                print(f"⚠️  オーナー移譲失敗: {e}")
+        # サービスアカウント使用時のみオーナー移譲が必要
+        if is_service_account:
+            gmail_address = os.environ.get("GMAIL_ADDRESS", "")
+            if gmail_address:
+                try:
+                    service.permissions().create(
+                        fileId=file["id"],
+                        body={"type": "user", "role": "owner", "emailAddress": gmail_address},
+                        transferOwnership=True,
+                    ).execute()
+                except Exception as e:
+                    print(f"⚠️  オーナー移譲失敗: {e}")
 
         # 誰でも閲覧可能に設定
         service.permissions().create(

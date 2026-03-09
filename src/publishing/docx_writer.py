@@ -95,7 +95,12 @@ def build_docx(book: GeneratedBook, output_dir: Optional[Path] = None) -> Path:
     # ─── 各章 ───
     for ch in book.chapters:
         doc.add_heading(f"第{ch.number}章　{ch.title}", level=1)
-        _add_markdown_paragraphs(doc, ch.content)
+        # コンテンツ先頭の章見出し行（# で始まる）を除去して重複を防ぐ
+        lines = ch.content.split("\n")
+        first_non_empty = next((i for i, l in enumerate(lines) if l.strip()), None)
+        if first_non_empty is not None and re.match(r"^#+\s+", lines[first_non_empty]):
+            lines = lines[first_non_empty + 1:]
+        _add_markdown_paragraphs(doc, "\n".join(lines))
         doc.add_page_break()
 
     # ─── あとがき ───

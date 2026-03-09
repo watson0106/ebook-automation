@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     google_api_key: str = ""
 
+    # Google Drive OAuth
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    google_oauth_refresh_token: str = ""
+
     # D2D Account
     d2d_email: str = ""
     d2d_password: str = ""

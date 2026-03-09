@@ -197,11 +197,17 @@ def extract_json(text: str) -> dict:
         return json.loads(text.strip())
     except json.JSONDecodeError:
         pass
-    # コードブロック内
+    # コードブロック内を抽出（先頭の *** などゴミ行を除去してから試す）
     m = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
     if m:
+        inner = m.group(1)
+        # *** のようなゴミ行を除去
+        inner = re.sub(r"^\*+\s*\n", "", inner).strip()
+        # { で始まっていない場合は {} で囲む
+        if inner and not inner.startswith("{"):
+            inner = "{" + inner + "}"
         try:
-            return json.loads(m.group(1))
+            return json.loads(inner)
         except json.JSONDecodeError:
             pass
     # 括弧の深さを数えて正確に抽出

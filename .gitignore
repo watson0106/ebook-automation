@@ -1,6 +1,7 @@
 # 環境変数（APIキー・パスワードを含む）
 .env
 config/service-account.json
+credentials.json
 
 # Python
 __pycache__/

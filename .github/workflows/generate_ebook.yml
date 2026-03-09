@@ -22,7 +22,7 @@ jobs:
           cache: pip
 
       - name: 依存パッケージをインストール
-        run: pip install --upgrade google-genai ebooklib Pillow python-docx google-api-python-client google-auth
+        run: pip install --upgrade google-genai ebooklib Pillow python-docx google-api-python-client google-auth requests
 
       - name: APIキー診断
         env:

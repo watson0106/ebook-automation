@@ -51,6 +51,77 @@ CANDIDATES = [
     "gemini-1.5-pro",
 ]
 
+# ── Vertex AI フォールバック ────────────────────────────────────────────────────
+VERTEX_REGION = "us-central1"
+VERTEX_MODEL = "gemini-2.0-flash-001"
+_vertex_token = ""
+_vertex_token_expiry = 0.0
+USE_VERTEX = False  # select_model() で有効化される
+
+
+def _get_vertex_token() -> str:
+    global _vertex_token, _vertex_token_expiry
+    if _vertex_token and time.time() < _vertex_token_expiry - 60:
+        return _vertex_token
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    sa_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "config/service-account.json")
+    try:
+        from google.oauth2 import service_account as _sa
+        from google.auth.transport.requests import Request as _Req
+        if creds_json:
+            info = json.loads(creds_json)
+            creds = _sa.Credentials.from_service_account_info(
+                info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+        else:
+            creds = _sa.Credentials.from_service_account_file(
+                sa_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+        creds.refresh(_Req())
+        _vertex_token = creds.token
+        _vertex_token_expiry = time.time() + 3600
+        return _vertex_token
+    except Exception as e:
+        raise RuntimeError(f"Vertex AIトークン取得失敗: {e}")
+
+
+def _vertex_project_id() -> str:
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    sa_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "config/service-account.json")
+    if creds_json:
+        return json.loads(creds_json).get("project_id", "")
+    try:
+        return json.loads(Path(sa_file).read_text()).get("project_id", "")
+    except Exception:
+        return ""
+
+
+def _call_vertex(prompt: str, system: str, max_tokens: int, json_mode: bool) -> str:
+    import requests as _req
+    token = _get_vertex_token()
+    project_id = _vertex_project_id()
+    url = (
+        f"https://{VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/{project_id}"
+        f"/locations/{VERTEX_REGION}/publishers/google/models/{VERTEX_MODEL}:generateContent"
+    )
+    payload: dict = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": 0.7 if json_mode else 0.9,
+        },
+    }
+    if system and not json_mode:
+        payload["system_instruction"] = {"parts": [{"text": system}]}
+    resp = _req.post(
+        url,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+
 SYSTEM_PROMPT = """あなたは「先生とユイの対話形式」で本の本質を伝える人気ライターです。
 
 ## キャラクター設定
@@ -145,6 +216,18 @@ def select_model():
                 print(f"  ✗ {name} ({code})")
                 break
 
+    # Gemini direct API が全滅 → Vertex AI を試す
+    global USE_VERTEX
+    print(f"\n⚠️  Gemini direct API 全モデル失敗 → Vertex AI にフォールバックを試みます...")
+    try:
+        result = _call_vertex("こんにちは", SYSTEM_PROMPT, 64, False)
+        if result:
+            USE_VERTEX = True
+            print(f"✅ Vertex AI ({VERTEX_MODEL}) で動作確認OK")
+            return
+    except Exception as ve:
+        print(f"❌ Vertex AI も失敗: {ve}")
+
     print(f"\n❌ どのモデルも使えませんでした。")
     print(f"   最後のエラー: {last_error}")
     print()
@@ -161,6 +244,21 @@ def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) ->
     wait = CALL_INTERVAL - (time.time() - _last_call)
     if wait > 0:
         time.sleep(wait)
+
+    # Vertex AI モードの場合は直接呼ぶ
+    if USE_VERTEX:
+        for attempt in range(3):
+            try:
+                _last_call = time.time()
+                return _call_vertex(prompt, SYSTEM_PROMPT, max_tokens, json_mode)
+            except Exception as e:
+                if attempt < 2:
+                    print(f"  ⚠️ Vertex AI 失敗 → {15*(attempt+1)}秒後リトライ: {type(e).__name__}")
+                    time.sleep(15 * (attempt + 1))
+                    continue
+                raise
+        raise RuntimeError("Vertex AI 呼び出しに失敗しました")
+
     for attempt in range(4):
         try:
             _last_call = time.time()
@@ -179,7 +277,6 @@ def call_gemini(prompt: str, max_tokens: int = 4096, json_mode: bool = False) ->
             s = str(e)
             if ("429" in s or "RESOURCE_EXHAUSTED" in s) and attempt < 3:
                 if _is_quota_exhausted(s):
-                    # 日次クォータ超過は待っても解決しないので即失敗
                     raise
                 wait_sec = _parse_retry_delay(s)
                 print(f"  ⚠️ レート制限 — {wait_sec}秒待機中... (試行 {attempt+1}/4)")
@@ -371,88 +468,80 @@ def cleanup_old_drive_files(service) -> None:
     print(f"  🗑️  {deleted} 件のファイルを削除し、ゴミ箱を空にしました")
 
 
+def _get_drive_token() -> str:
+    """Drive用アクセストークンを取得（OAuth優先、サービスアカウントフォールバック）"""
+    import requests as _req
+
+    # 方法1: OAuthリフレッシュトークン（ユーザーのDriveに保存）
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
+    if client_id and client_secret and refresh_token:
+        resp = _req.post("https://oauth2.googleapis.com/token", data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        })
+        resp.raise_for_status()
+        print("  🔑 OAuthユーザー認証を使用")
+        return resp.json()["access_token"]
+
+    # 方法2: サービスアカウント
+    credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    sa_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "config/service-account.json")
+    if credentials_json or Path(sa_file).exists():
+        from google.oauth2 import service_account as _sa
+        from google.auth.transport.requests import Request as _Req
+        if credentials_json:
+            creds = _sa.Credentials.from_service_account_info(
+                json.loads(credentials_json),
+                scopes=["https://www.googleapis.com/auth/drive"],
+            )
+        else:
+            creds = _sa.Credentials.from_service_account_file(
+                sa_file, scopes=["https://www.googleapis.com/auth/drive"]
+            )
+        creds.refresh(_Req())
+        print("  🔑 サービスアカウント認証を使用")
+        return creds.token
+
+    raise RuntimeError("Google認証情報が未設定 (GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN または GOOGLE_CREDENTIALS_JSON)")
+
+
 def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
     """docxをGoogle Driveにアップロードし、Google Docsに変換して共有URLを返す"""
-    if not _GDRIVE_AVAILABLE:
-        print("⚠️  google-api-python-client が未インストールのためGoogle Docsアップロードをスキップ")
-        return None
+    import requests as _req
 
     try:
-        credentials = None
-
-        # 方法1: OAuthリフレッシュトークン（推奨 - ユーザーのDriveクォータを使用）
-        client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
-        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-        refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
-        if client_id and client_secret and refresh_token:
-            credentials = Credentials(
-                token=None,
-                refresh_token=refresh_token,
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=client_id,
-                client_secret=client_secret,
-                scopes=["https://www.googleapis.com/auth/drive"],
-            )
-            credentials.refresh(Request())
-            print("  🔑 OAuthユーザー認証を使用")
-
-        # 方法2: サービスアカウント（フォールバック）
-        if credentials is None:
-            credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-            if not credentials_json:
-                print("⚠️  Google認証情報が未設定のためGoogle Docsアップロードをスキップ")
-                print("     GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN")
-                print("     または GOOGLE_CREDENTIALS_JSON を設定してください")
-                return None
-            credentials_info = json.loads(credentials_json)
-            credentials = service_account.Credentials.from_service_account_info(
-                credentials_info,
-                scopes=["https://www.googleapis.com/auth/drive"],
-            )
-            print("  🔑 サービスアカウント認証を使用")
-        service = build("drive", "v3", credentials=credentials, cache_discovery=False)
-
-        # サービスアカウント使用時のみ古いファイルを削除
-        is_service_account = isinstance(credentials, service_account.Credentials)
-        if is_service_account:
-            cleanup_old_drive_files(service)
+        token = _get_drive_token()
+        headers = {"Authorization": f"Bearer {token}"}
 
         folder_id = os.environ.get("GDRIVE_FOLDER_ID", "")
-        file_metadata = {
+        metadata: dict = {
             "name": title,
             "mimeType": "application/vnd.google-apps.document",
         }
         if folder_id:
-            file_metadata["parents"] = [folder_id]
-        media = MediaFileUpload(
-            str(docx_path),
-            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            resumable=True,
+            metadata["parents"] = [folder_id]
+
+        resp = _req.post(
+            "https://www.googleapis.com/upload/drive/v3/files",
+            headers=headers,
+            params={"uploadType": "multipart", "fields": "id,webViewLink"},
+            files={
+                "metadata": (None, json.dumps(metadata), "application/json; charset=UTF-8"),
+                "file": (
+                    docx_path.name,
+                    docx_path.read_bytes(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ),
+            },
         )
-        file = service.files().create(
-            body=file_metadata, media_body=media, fields="id,webViewLink"
-        ).execute()
-
-        # サービスアカウント使用時のみオーナー移譲が必要
-        if is_service_account:
-            gmail_address = os.environ.get("GMAIL_ADDRESS", "")
-            if gmail_address:
-                try:
-                    service.permissions().create(
-                        fileId=file["id"],
-                        body={"type": "user", "role": "owner", "emailAddress": gmail_address},
-                        transferOwnership=True,
-                    ).execute()
-                except Exception as e:
-                    print(f"⚠️  オーナー移譲失敗: {e}")
-
-        # 誰でも閲覧可能に設定
-        service.permissions().create(
-            fileId=file["id"],
-            body={"type": "anyone", "role": "reader"},
-        ).execute()
-
-        return file.get("webViewLink", "")
+        resp.raise_for_status()
+        file = resp.json()
+        url = file.get("webViewLink", f"https://docs.google.com/document/d/{file['id']}/edit")
+        return url
     except Exception as e:
         print(f"⚠️  Google Docsアップロード失敗: {e}")
         return None

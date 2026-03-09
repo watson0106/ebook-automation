@@ -399,6 +399,18 @@ def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
             body=file_metadata, media_body=media, fields="id,webViewLink"
         ).execute()
 
+        # オーナーをユーザーのGmailに移譲（サービスアカウントのストレージ節約）
+        gmail_address = os.environ.get("GMAIL_ADDRESS", "")
+        if gmail_address:
+            try:
+                service.permissions().create(
+                    fileId=file["id"],
+                    body={"type": "user", "role": "owner", "emailAddress": gmail_address},
+                    transferOwnership=True,
+                ).execute()
+            except Exception as e:
+                print(f"⚠️  オーナー移譲失敗: {e}")
+
         # 誰でも閲覧可能に設定
         service.permissions().create(
             fileId=file["id"],

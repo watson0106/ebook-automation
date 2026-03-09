@@ -45,6 +45,7 @@ jobs:
           BOOK_TITLE: ${{ inputs.book_title }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
         run: python scripts/generate_ebook.py
 
       - name: 生成ファイルをArtifactとして保存

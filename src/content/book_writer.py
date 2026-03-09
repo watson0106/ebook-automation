@@ -1,4 +1,4 @@
-"""Gemini APIを使って賢者とユイの対話形式で本を執筆するモジュール"""
+"""Gemini / Claude APIを使って賢者とユイの対話形式で本を執筆するモジュール"""
 import json
 import re
 import time
@@ -35,9 +35,28 @@ class BookWriter:
         self.model = settings.gemini_model
         self._last_call_time: float = 0.0
 
+    def _call_claude(self, prompt: str, system: str = SYSTEM_PROMPT, max_tokens: int = 4096) -> str:
+        """Claude APIを呼び出してテキストを生成"""
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": settings.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": settings.claude_model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=120,
+        )
+        response.raise_for_status()
+        return response.json()["content"][0]["text"]
+
     def _call_gemini(self, prompt: str, system: str = SYSTEM_PROMPT, max_tokens: int = 4096) -> str:
-        """Gemini REST APIを呼び出してテキストを生成（レート制限対応）"""
-        # 前回呼び出しからの最小間隔を確保
+        """Gemini REST APIを呼び出す。失敗時はClaudeにフォールバック"""
         elapsed = time.time() - self._last_call_time
         if elapsed < CALL_INTERVAL_SEC:
             wait = CALL_INTERVAL_SEC - elapsed
@@ -74,11 +93,19 @@ class BookWriter:
             if response.status_code == 429:
                 if attempt < len(RETRY_WAIT_SECS):
                     continue
-                response.raise_for_status()
+                break
+
+            if response.status_code == 403:
+                console.print("  [yellow]⚠️ Gemini API 403 → Claude にフォールバック[/yellow]")
+                return self._call_claude(prompt, system, max_tokens)
 
             response.raise_for_status()
             data = response.json()
             return data["candidates"][0]["content"]["parts"][0]["text"]
+
+        # 全リトライ失敗 → Claude にフォールバック
+        console.print("  [yellow]⚠️ Gemini API 失敗 → Claude にフォールバック[/yellow]")
+        return self._call_claude(prompt, system, max_tokens)
 
     def _extract_json(self, text: str) -> dict:
         """テキストからJSONを抽出"""

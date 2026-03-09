@@ -176,6 +176,7 @@ def run(title, author, category, description):
     from src.content.book_writer import BookWriter
     from src.thumbnail.imagen_generator import ThumbnailGenerator
     from src.epub.epub_builder import build_epub
+    from config.settings import settings
 
     # ① 書籍情報の自動検索
     writer = BookWriter()
@@ -225,6 +226,16 @@ def run(title, author, category, description):
     from src.publishing.docx_writer import build_docx
     docx_path = build_docx(book)
 
+    # ⑤ Google Drive へアップロード
+    gdoc_url = None
+    if settings.google_oauth_refresh_token:
+        console.print("\n[bold]--- STEP 5: Google Drive アップロード ---[/bold]")
+        try:
+            from src.publishing.drive_uploader import upload_docx_as_gdoc
+            gdoc_url = upload_docx_as_gdoc(docx_path)
+        except Exception as e:
+            console.print(f"[yellow]  ⚠️  Google Drive アップロード失敗: {e}[/yellow]")
+
     # 成果物レポート
     console.print("\n" + "=" * 50)
     console.print("[bold green]✅ 成果物が完成しました[/bold green]")
@@ -239,8 +250,9 @@ def run(title, author, category, description):
     console.print(f"  Word  : [cyan]{docx_path.resolve()}[/cyan]  ({docx_path.stat().st_size / 1024:.1f} KB)")
     if cover_path and cover_path.exists():
         console.print(f"  カバー: [cyan]{cover_path.resolve()}[/cyan]  ({cover_path.stat().st_size / 1024:.1f} KB)")
-    console.print(f"\n[dim]💡 .docx はGoogleドライブにアップロードするとGoogleドキュメントとして編集できます。[/dim]")
-    console.print(f"[dim]D2D投稿は 'python main.py publish' コマンドで別途実行できます。[/dim]")
+    if gdoc_url:
+        console.print(f"  Google Doc: [cyan]{gdoc_url}[/cyan]")
+    console.print(f"\n[dim]D2D投稿は 'python main.py publish' コマンドで別途実行できます。[/dim]")
 
 
 @cli.command()
@@ -257,6 +269,7 @@ def docx(title, author, category, description, output_dir):
     from src.research import BookInfo
     from src.content.book_writer import BookWriter
     from src.publishing.docx_writer import build_docx
+    from config.settings import settings
 
     writer = BookWriter()
     if author is None or category is None or description is None:
@@ -274,10 +287,19 @@ def docx(title, author, category, description, output_dir):
     out_dir = Path(output_dir) if output_dir else None
     docx_path = build_docx(book, out_dir)
 
+    gdoc_url = None
+    if settings.google_oauth_refresh_token:
+        try:
+            from src.publishing.drive_uploader import upload_docx_as_gdoc
+            gdoc_url = upload_docx_as_gdoc(docx_path)
+        except Exception as e:
+            console.print(f"[yellow]  ⚠️  Google Drive アップロード失敗: {e}[/yellow]")
+
     console.print(f"\n[bold green]✅ 完了！[/bold green]")
     console.print(f"   ファイル: [cyan]{docx_path.resolve()}[/cyan]")
     console.print(f"   文字数  : {book.total_chars:,} 文字")
-    console.print(f"\n[dim]💡 このファイルをGoogleドライブにアップロードすると、Googleドキュメントとして編集できます。[/dim]")
+    if gdoc_url:
+        console.print(f"   Google Doc: [cyan]{gdoc_url}[/cyan]")
 
 
 @cli.command()

@@ -371,40 +371,39 @@ def upload_to_google_docs(docx_path: Path, title: str) -> str | None:
         print("⚠️  google-api-python-client が未インストールのためGoogle Docsアップロードをスキップ")
         return None
 
-    credentials = None
-
-    # 方法1: OAuthリフレッシュトークン（推奨 - ユーザーのDriveクォータを使用）
-    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
-    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
-    if client_id and client_secret and refresh_token:
-        credentials = Credentials(
-            token=None,
-            refresh_token=refresh_token,
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=client_id,
-            client_secret=client_secret,
-            scopes=["https://www.googleapis.com/auth/drive"],
-        )
-        credentials.refresh(Request())
-        print("  🔑 OAuthユーザー認証を使用")
-
-    # 方法2: サービスアカウント（フォールバック）
-    if credentials is None:
-        credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-        if not credentials_json:
-            print("⚠️  Google認証情報が未設定のためGoogle Docsアップロードをスキップ")
-            print("     GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN")
-            print("     または GOOGLE_CREDENTIALS_JSON を設定してください")
-            return None
-        credentials_info = json.loads(credentials_json)
-        credentials = service_account.Credentials.from_service_account_info(
-            credentials_info,
-            scopes=["https://www.googleapis.com/auth/drive"],
-        )
-        print("  🔑 サービスアカウント認証を使用")
-
     try:
+        credentials = None
+
+        # 方法1: OAuthリフレッシュトークン（推奨 - ユーザーのDriveクォータを使用）
+        client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+        refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
+        if client_id and client_secret and refresh_token:
+            credentials = Credentials(
+                token=None,
+                refresh_token=refresh_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=["https://www.googleapis.com/auth/drive"],
+            )
+            credentials.refresh(Request())
+            print("  🔑 OAuthユーザー認証を使用")
+
+        # 方法2: サービスアカウント（フォールバック）
+        if credentials is None:
+            credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+            if not credentials_json:
+                print("⚠️  Google認証情報が未設定のためGoogle Docsアップロードをスキップ")
+                print("     GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN")
+                print("     または GOOGLE_CREDENTIALS_JSON を設定してください")
+                return None
+            credentials_info = json.loads(credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_info,
+                scopes=["https://www.googleapis.com/auth/drive"],
+            )
+            print("  🔑 サービスアカウント認証を使用")
         service = build("drive", "v3", credentials=credentials, cache_discovery=False)
 
         # サービスアカウント使用時のみ古いファイルを削除

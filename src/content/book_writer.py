@@ -1,4 +1,4 @@
-"""Gemini / Claude APIを使って賢者とユイの対話形式で本を執筆するモジュール"""
+"""Gemini / Vertex AI / Claude APIを使って賢者とユイの対話形式で本を執筆するモジュール"""
 import json
 import re
 import time
@@ -22,10 +22,11 @@ from src.content.prompts import (
 console = Console()
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+VERTEX_REGION = "us-central1"
+VERTEX_MODEL = "gemini-2.0-flash-001"
 
-# 無料枠レート制限: gemini-2.0-flash = 15回/分 → 4秒間隔
+# 無料枠レート制限: 4秒間隔
 CALL_INTERVAL_SEC = 5
-# 429エラー時の待機秒数（指数バックオフ）
 RETRY_WAIT_SECS = [30, 60, 120]
 
 
@@ -34,6 +35,47 @@ class BookWriter:
         self.api_key = settings.google_api_key
         self.model = settings.gemini_model
         self._last_call_time: float = 0.0
+        self._vertex_token: str = ""
+        self._vertex_token_expiry: float = 0.0
+
+    def _get_vertex_token(self) -> str:
+        """Vertex AI 用のアクセストークンをサービスアカウントから取得"""
+        if self._vertex_token and time.time() < self._vertex_token_expiry - 60:
+            return self._vertex_token
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        creds = service_account.Credentials.from_service_account_file(
+            "config/service-account.json",
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        creds.refresh(Request())
+        self._vertex_token = creds.token
+        self._vertex_token_expiry = time.time() + 3600
+        return self._vertex_token
+
+    def _call_vertex(self, prompt: str, system: str = SYSTEM_PROMPT, max_tokens: int = 4096) -> str:
+        """Vertex AI 経由で Gemini を呼び出す"""
+        import json as _json
+        token = self._get_vertex_token()
+        sa = _json.load(open("config/service-account.json"))
+        project_id = sa["project_id"]
+        url = (
+            f"https://{VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/{project_id}"
+            f"/locations/{VERTEX_REGION}/publishers/google/models/{VERTEX_MODEL}:generateContent"
+        )
+        payload = {
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.9},
+        }
+        response = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=120,
+        )
+        response.raise_for_status()
+        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
 
     def _call_claude(self, prompt: str, system: str = SYSTEM_PROMPT, max_tokens: int = 4096) -> str:
         """Claude APIを呼び出してテキストを生成"""
@@ -56,7 +98,7 @@ class BookWriter:
         return response.json()["content"][0]["text"]
 
     def _call_gemini(self, prompt: str, system: str = SYSTEM_PROMPT, max_tokens: int = 4096) -> str:
-        """Gemini REST APIを呼び出す。失敗時はClaudeにフォールバック"""
+        """Gemini REST API → Vertex AI → Claude の順でフォールバック"""
         elapsed = time.time() - self._last_call_time
         if elapsed < CALL_INTERVAL_SEC:
             wait = CALL_INTERVAL_SEC - elapsed
@@ -65,16 +107,9 @@ class BookWriter:
 
         url = GEMINI_API_URL.format(model=self.model)
         payload = {
-            "system_instruction": {
-                "parts": [{"text": system}]
-            },
-            "contents": [
-                {"role": "user", "parts": [{"text": prompt}]}
-            ],
-            "generationConfig": {
-                "maxOutputTokens": max_tokens,
-                "temperature": 0.9,
-            },
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.9},
         }
 
         for attempt, retry_wait in enumerate([0] + RETRY_WAIT_SECS):
@@ -96,16 +131,23 @@ class BookWriter:
                 break
 
             if response.status_code == 403:
-                console.print("  [yellow]⚠️ Gemini API 403 → Claude にフォールバック[/yellow]")
-                return self._call_claude(prompt, system, max_tokens)
+                break
 
             response.raise_for_status()
-            data = response.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
 
-        # 全リトライ失敗 → Claude にフォールバック
-        console.print("  [yellow]⚠️ Gemini API 失敗 → Claude にフォールバック[/yellow]")
-        return self._call_claude(prompt, system, max_tokens)
+        # Vertex AI にフォールバック（タイムアウト時は最大3回リトライ）
+        console.print("  [yellow]⚠️ Gemini direct API 失敗 → Vertex AI にフォールバック[/yellow]")
+        last_err = None
+        for attempt in range(3):
+            try:
+                return self._call_vertex(prompt, system, max_tokens)
+            except Exception as e:
+                last_err = e
+                wait = (attempt + 1) * 15
+                console.print(f"  [yellow]⚠️ Vertex AI 失敗 (attempt {attempt+1}/3): {type(e).__name__} → {wait}秒待機してリトライ[/yellow]")
+                time.sleep(wait)
+        raise RuntimeError(f"Vertex AI 3回リトライ全失敗: {last_err}")
 
     def _extract_json(self, text: str) -> dict:
         """テキストからJSONを抽出"""

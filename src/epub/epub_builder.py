@@ -276,7 +276,7 @@ def build_epub(
         title="まえがき",
         file_name="foreword.xhtml",
         lang="ja",
-        content=foreword_html,
+        content=foreword_html.encode("utf-8"),
     )
     foreword_chapter.add_item(css_item)
     epub_book.add_item(foreword_chapter)
@@ -302,7 +302,7 @@ def build_epub(
             title=f"第{ch.number}章 {ch.title}",
             file_name=f"chapter_{ch.number:02d}.xhtml",
             lang="ja",
-            content=chapter_html,
+            content=chapter_html.encode("utf-8"),
         )
         chapter_item.add_item(css_item)
         epub_book.add_item(chapter_item)
@@ -328,7 +328,7 @@ def build_epub(
         title="あとがき",
         file_name="afterword.xhtml",
         lang="ja",
-        content=afterword_html,
+        content=afterword_html.encode("utf-8"),
     )
     afterword_chapter.add_item(css_item)
     epub_book.add_item(afterword_chapter)

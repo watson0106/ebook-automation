@@ -18,8 +18,67 @@ COVER_HEIGHT = 2400
 
 class ThumbnailGenerator:
     def __init__(self):
-        self.client = genai.Client(api_key=settings.google_api_key)
         self.model = settings.imagen_model
+        self._vertex_token: str = ""
+        self._vertex_token_expiry: float = 0.0
+
+    def _get_vertex_token(self) -> str:
+        import time
+        if self._vertex_token and time.time() < self._vertex_token_expiry - 60:
+            return self._vertex_token
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        creds = service_account.Credentials.from_service_account_file(
+            "config/service-account.json",
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        creds.refresh(Request())
+        self._vertex_token = creds.token
+        import time as _t
+        self._vertex_token_expiry = _t.time() + 3600
+        return self._vertex_token
+
+    def _generate_via_vertex(self, enhanced_prompt: str, negative_prompt: str) -> bytes:
+        """Vertex AI 経由で Imagen 3 画像を生成"""
+        import json, requests as req_lib
+        token = self._get_vertex_token()
+        sa = json.load(open("config/service-account.json"))
+        project_id = sa["project_id"]
+        url = (
+            f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project_id}"
+            "/locations/us-central1/publishers/google/models/imagen-3.0-generate-001:predict"
+        )
+        payload = {
+            "instances": [{"prompt": enhanced_prompt}],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": "2:3",
+                "negativePrompt": negative_prompt,
+            },
+        }
+        resp = req_lib.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        import base64
+        b64 = resp.json()["predictions"][0]["bytesBase64Encoded"]
+        return base64.b64decode(b64)
+
+    def _generate_placeholder(self, output_path: Path, book_title: str = "") -> Path:
+        """Imagen が使えない場合のプレースホルダー画像を Pillow で生成"""
+        from PIL import ImageDraw as _ID
+        img = Image.new("RGB", (COVER_WIDTH, COVER_HEIGHT), color=(30, 50, 80))
+        draw = _ID.Draw(img)
+        # グラデーション風の背景ライン
+        for i in range(0, COVER_HEIGHT, 40):
+            alpha = int(40 * (i / COVER_HEIGHT))
+            draw.rectangle([0, i, COVER_WIDTH, i + 20], fill=(20 + alpha, 40 + alpha, 70 + alpha))
+        img.save(output_path, "JPEG", quality=95)
+        console.print(f"[yellow]⚠️ Imagen 不可 → プレースホルダー画像を使用: {output_path}[/yellow]")
+        return output_path
 
     def generate_cover_image(
         self,
@@ -28,47 +87,62 @@ class ThumbnailGenerator:
         output_path: Path | None = None,
     ) -> Path:
         """
-        Imagen 3でカバー画像を生成する
+        Imagen 3でカバー画像を生成する（Vertex AI フォールバック付き）
 
         Args:
             imagen_prompt: 画像生成プロンプト（英語）
             negative_prompt: ネガティブプロンプト
             output_path: 保存先パス
         """
-        console.print("[cyan]🎨 Imagen 3でカバー画像を生成中...[/cyan]")
+        if output_path is None:
+            settings.output_thumbnails_dir.mkdir(parents=True, exist_ok=True)
+            output_path = settings.output_thumbnails_dir / "cover.jpg"
 
-        # eBook カバー向けにプロンプトを強化
         enhanced_prompt = (
             f"{imagen_prompt}, "
             "professional ebook cover design, portrait orientation 2:3 ratio, "
             "high quality, 1600x2400 pixels, book cover layout"
         )
 
-        response = self.client.models.generate_images(
-            model=self.model,
-            prompt=enhanced_prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="2:3",       # 縦長（eBook標準）
-                safety_filter_level="block_only_high",
-                person_generation="allow_adult",
-            ),
-        )
+        # まず直接 API を試す
+        console.print("[cyan]🎨 Imagen 3でカバー画像を生成中...[/cyan]")
+        try:
+            client = genai.Client(api_key=settings.google_api_key)
+            response = client.models.generate_images(
+                model=self.model,
+                prompt=enhanced_prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio="2:3",
+                    safety_filter_level="block_only_high",
+                    person_generation="allow_adult",
+                ),
+            )
+            if response.generated_images:
+                image_data = response.generated_images[0].image.image_bytes
+                import io
+                img = Image.open(io.BytesIO(image_data)).convert("RGB")
+                img = img.resize((COVER_WIDTH, COVER_HEIGHT), Image.LANCZOS)
+                img.save(output_path, "JPEG", quality=95)
+                console.print(f"[green]✅ カバー画像保存: {output_path}[/green]")
+                return output_path
+        except Exception as e:
+            console.print(f"  [yellow]⚠️ Imagen direct API 失敗 → Vertex AI で試行: {type(e).__name__}[/yellow]")
 
-        if not response.generated_images:
-            raise RuntimeError("Imagen 3から画像が生成されませんでした")
+        # Vertex AI 経由で試す
+        try:
+            image_bytes = self._generate_via_vertex(enhanced_prompt, negative_prompt)
+            import io
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            img = img.resize((COVER_WIDTH, COVER_HEIGHT), Image.LANCZOS)
+            img.save(output_path, "JPEG", quality=95)
+            console.print(f"[green]✅ Vertex AI カバー画像保存: {output_path}[/green]")
+            return output_path
+        except Exception as e:
+            console.print(f"  [yellow]⚠️ Vertex AI Imagen 失敗 → プレースホルダー使用: {type(e).__name__}[/yellow]")
 
-        image_data = response.generated_images[0].image.image_bytes
-        img = Image.frombytes("RGB", (COVER_WIDTH, COVER_HEIGHT), image_data)
-
-        # 出力パスを決定
-        if output_path is None:
-            settings.output_thumbnails_dir.mkdir(parents=True, exist_ok=True)
-            output_path = settings.output_thumbnails_dir / "cover.jpg"
-
-        img.save(output_path, "JPEG", quality=95)
-        console.print(f"[green]✅ カバー画像保存: {output_path}[/green]")
-        return output_path
+        # 最終フォールバック: Pillow でプレースホルダー
+        return self._generate_placeholder(output_path)
 
     def add_title_overlay(
         self,

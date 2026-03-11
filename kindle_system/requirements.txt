@@ -1,0 +1,6 @@
+pyautogui
+Pillow
+opencv-python
+pytesseract
+tqdm
+python-dotenv

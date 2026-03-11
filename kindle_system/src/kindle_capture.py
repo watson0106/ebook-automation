@@ -19,7 +19,7 @@ except ImportError:
     sys.exit(1)
 
 
-OUTPUT_DIR = Path(__file__).parent / "output" / "screenshots"
+OUTPUT_DIR = Path(__file__).parent.parent / "output" / "screenshots"
 PAGE_TURN_WAIT = 2.0
 MAX_RETRIES = 3
 
@@ -36,7 +36,7 @@ def check_accessibility_permission() -> bool:
         print("以下の手順で設定してください：")
         print("  1. Apple メニュー → システム設定 を開く")
         print("  2. プライバシーとセキュリティ → アクセシビリティ を選択")
-        print("  3. 「ターミナル」または「iTerm」をリストに追加してオンにする")
+        print("  3. 「ターミナル」および「Visual Studio Code」をリストに追加してオンにする")
         print("  4. このスクリプトを再実行する\n")
         return False
     return True

@@ -18,8 +18,8 @@ except ImportError:
     sys.exit(1)
 
 
-SCREENSHOTS_DIR = Path(__file__).parent / "output" / "screenshots"
-TEXTS_DIR = Path(__file__).parent / "output" / "texts"
+SCREENSHOTS_DIR = Path(__file__).parent.parent / "output" / "screenshots"
+TEXTS_DIR = Path(__file__).parent.parent / "output" / "texts"
 
 # Tesseractの日本語設定
 TESSERACT_LANG = "jpn"

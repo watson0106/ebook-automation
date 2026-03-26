@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:draft2digital.com)",
+      "WebFetch(domain:books.rakuten.co.jp)",
+      "WebFetch(domain:www.tohan.jp)",
+      "WebFetch(domain:note.com)",
+      "WebFetch(domain:www.flierinc.com)",
+      "WebFetch(domain:news.infoseek.co.jp)",
+      "WebFetch(domain:www.nippan.co.jp)",
+      "WebFetch(domain:poonyoponyo.seesaa.net)",
+      "WebFetch(domain:nendai-ryuukou.com)",
+      "WebFetch(domain:rich-book.com)",
+      "WebFetch(domain:prtimes.jp)",
+      "WebFetch(domain:ja.wikipedia.org)"
+    ]
+  }
+}

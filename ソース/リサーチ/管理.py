@@ -7,11 +7,11 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from config.settings import settings
-from src.research import BookInfo
-from src.research.amazon_scraper import scrape_amazon_bestsellers
-from src.research.rakuten_scraper import scrape_rakuten_bestsellers
-from src.research.kindle_scraper import scrape_kindle_bestsellers
+from 設定.設定値 import settings
+from ソース.リサーチ import BookInfo
+from ソース.リサーチ.Amazonスクレイパー import scrape_amazon_bestsellers
+from ソース.リサーチ.楽天スクレイパー import scrape_rakuten_bestsellers
+from ソース.リサーチ.Kindleスクレイパー import scrape_kindle_bestsellers
 
 console = Console()
 

@@ -7,7 +7,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 from rich.console import Console
 
-from src.research import BookInfo
+from ソース.リサーチ import BookInfo
 
 console = Console()
 

@@ -7,10 +7,10 @@ from pathlib import Path
 
 from rich.console import Console
 
-from config.settings import settings
-from src.research import BookInfo
-from src.content import Chapter, GeneratedBook
-from src.content.prompts import (
+from 設定.設定値 import settings
+from ソース.リサーチ import BookInfo
+from ソース.コンテンツ import Chapter, GeneratedBook
+from ソース.コンテンツ.プロンプト import (
     SYSTEM_PROMPT,
     BOOK_PLAN_PROMPT,
     CHAPTER_PROMPT,

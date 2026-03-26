@@ -7,7 +7,7 @@ from typing import Optional
 from playwright.async_api import async_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
 from rich.console import Console
 
-from config.settings import settings
+from 設定.設定値 import settings
 
 console = Console()
 

@@ -49,7 +49,7 @@ jobs:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
-        run: python scripts/generate_ebook.py
+        run: python スクリプト/電子書籍生成.py
 
       - name: 生成ファイルをArtifactとして保存
         uses: actions/upload-artifact@v4

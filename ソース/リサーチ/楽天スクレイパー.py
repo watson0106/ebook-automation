@@ -6,7 +6,7 @@ from typing import Optional
 import aiohttp
 from rich.console import Console
 
-from src.research import BookInfo
+from ソース.リサーチ import BookInfo
 
 console = Console()
 

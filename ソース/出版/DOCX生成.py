@@ -9,8 +9,8 @@ from typing import Optional
 
 from rich.console import Console
 
-from config.settings import settings
-from src.content import GeneratedBook
+from 設定.設定値 import settings
+from ソース.コンテンツ import GeneratedBook
 
 console = Console()
 

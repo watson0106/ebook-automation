@@ -39,12 +39,12 @@ def research(sources, top, output):
     print_banner()
     console.print(f"\n[bold]リサーチ開始: {list(sources)}[/bold]\n")
 
-    from src.research.manager import research_popular_books
+    from ソース.リサーチ.管理 import research_popular_books
 
     books = asyncio.run(research_popular_books(sources=list(sources), top_n=top))
 
     if output:
-        from src.research.manager import save_report
+        from ソース.リサーチ.管理 import save_report
         save_report(books, Path(output))
 
     console.print(f"\n[bold green]完了: {len(books)} 件の本を取得しました[/bold green]")
@@ -61,8 +61,8 @@ def write(title, author, category, description, output_dir):
     print_banner()
     console.print(f"\n[bold]執筆開始: {title}[/bold]\n")
 
-    from src.research import BookInfo
-    from src.content.book_writer import BookWriter
+    from ソース.リサーチ import BookInfo
+    from ソース.コンテンツ.執筆エンジン import BookWriter
 
     writer = BookWriter()
     if author is None or category is None or description is None:
@@ -99,14 +99,14 @@ def thumbnail(title, subtitle, prompt, output):
     print_banner()
     console.print(f"\n[bold]サムネイル生成: {title}[/bold]\n")
 
-    from src.thumbnail.imagen_generator import ThumbnailGenerator
+    from ソース.サムネイル.画像生成 import ThumbnailGenerator
 
     gen = ThumbnailGenerator()
 
     if not prompt:
         # Claudeにプロンプトを生成させる
-        from src.research import BookInfo
-        from src.content.book_writer import BookWriter
+        from ソース.リサーチ import BookInfo
+        from ソース.コンテンツ.執筆エンジン import BookWriter
         book_info = BookInfo(title=title, author="", source="manual", rank=0)
         writer = BookWriter()
         plan = {"book_title": title, "subtitle": subtitle, "keywords": [], "description": ""}
@@ -134,8 +134,8 @@ def publish(epub, cover, title, subtitle, description, price):
     print_banner()
     console.print(f"\n[bold]D2D投稿: {title}[/bold]\n")
 
-    from src.publishing.d2d_publisher import D2DPublisher, BookMetadata
-    from config.settings import settings
+    from ソース.出版.D2D投稿 import D2DPublisher, BookMetadata
+    from 設定.設定値 import settings
 
     meta = BookMetadata(
         title=title,
@@ -172,11 +172,11 @@ def run(title, author, category, description):
     print_banner()
     console.print(f"\n[bold cyan]🚀 全工程パイプライン開始[/bold cyan]")
 
-    from src.research import BookInfo
-    from src.content.book_writer import BookWriter
-    from src.thumbnail.imagen_generator import ThumbnailGenerator
-    from src.epub.epub_builder import build_epub
-    from config.settings import settings
+    from ソース.リサーチ import BookInfo
+    from ソース.コンテンツ.執筆エンジン import BookWriter
+    from ソース.サムネイル.画像生成 import ThumbnailGenerator
+    from ソース.電子書籍.EPUB生成 import build_epub
+    from 設定.設定値 import settings
 
     # ① 書籍情報の自動検索
     writer = BookWriter()
@@ -223,7 +223,7 @@ def run(title, author, category, description):
 
     # ④ Word (.docx) 生成
     console.print("\n[bold]--- STEP 4: Word(.docx)生成 ---[/bold]")
-    from src.publishing.docx_writer import build_docx
+    from ソース.出版.DOCX生成 import build_docx
     docx_path = build_docx(book)
 
     # ⑤ Google Drive へアップロード
@@ -231,7 +231,7 @@ def run(title, author, category, description):
     if settings.google_oauth_refresh_token:
         console.print("\n[bold]--- STEP 5: Google Drive アップロード ---[/bold]")
         try:
-            from src.publishing.drive_uploader import upload_docx_as_gdoc
+            from ソース.出版.Driveアップロード import upload_docx_as_gdoc
             gdoc_url = upload_docx_as_gdoc(docx_path)
         except Exception as e:
             console.print(f"[yellow]  ⚠️  Google Drive アップロード失敗: {e}[/yellow]")
@@ -252,7 +252,7 @@ def run(title, author, category, description):
         console.print(f"  カバー: [cyan]{cover_path.resolve()}[/cyan]  ({cover_path.stat().st_size / 1024:.1f} KB)")
     if gdoc_url:
         console.print(f"  Google Doc: [cyan]{gdoc_url}[/cyan]")
-    console.print(f"\n[dim]D2D投稿は 'python main.py publish' コマンドで別途実行できます。[/dim]")
+    console.print(f"\n[dim]D2D投稿は 'python メイン.py publish' コマンドで別途実行できます。[/dim]")
 
 
 @cli.command()
@@ -266,10 +266,10 @@ def docx(title, author, category, description, output_dir):
     print_banner()
     console.print(f"\n[bold]執筆 & .docx 生成: {title}[/bold]\n")
 
-    from src.research import BookInfo
-    from src.content.book_writer import BookWriter
-    from src.publishing.docx_writer import build_docx
-    from config.settings import settings
+    from ソース.リサーチ import BookInfo
+    from ソース.コンテンツ.執筆エンジン import BookWriter
+    from ソース.出版.DOCX生成 import build_docx
+    from 設定.設定値 import settings
 
     writer = BookWriter()
     if author is None or category is None or description is None:
@@ -290,7 +290,7 @@ def docx(title, author, category, description, output_dir):
     gdoc_url = None
     if settings.google_oauth_refresh_token:
         try:
-            from src.publishing.drive_uploader import upload_docx_as_gdoc
+            from ソース.出版.Driveアップロード import upload_docx_as_gdoc
             gdoc_url = upload_docx_as_gdoc(docx_path)
         except Exception as e:
             console.print(f"[yellow]  ⚠️  Google Drive アップロード失敗: {e}[/yellow]")
@@ -332,8 +332,8 @@ def setup():
 
     console.print("\n[bold]次のステップ:[/bold]")
     console.print("1. .env ファイルにAPIキーとD2D認証情報を設定")
-    console.print("2. python main.py research  # 人気本をリサーチ")
-    console.print("3. python main.py run --title '本のタイトル'  # 全工程実行")
+    console.print("2. python メイン.py research  # 人気本をリサーチ")
+    console.print("3. python メイン.py run --title '本のタイトル'  # 全工程実行")
 
 
 if __name__ == "__main__":

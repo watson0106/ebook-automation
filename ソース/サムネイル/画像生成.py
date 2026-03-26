@@ -7,7 +7,7 @@ from google.genai import types
 from PIL import Image, ImageDraw, ImageFont
 from rich.console import Console
 
-from config.settings import settings
+from 設定.設定値 import settings
 
 console = Console()
 
